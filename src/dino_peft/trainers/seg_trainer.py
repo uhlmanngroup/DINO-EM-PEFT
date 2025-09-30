@@ -1,7 +1,10 @@
 from pathlib import Path
 import yaml
+import os
 import torch
+import mlflow
 import torch.nn as nn
+from mlflow import log_metric, log_param, log_artifacts
 from torch.utils.data import DataLoader, random_split
 from torchvision.utils import save_image, make_grid
 import torch.nn.functional as F
@@ -76,6 +79,28 @@ class SegTrainer:
 
         self.out_dir = Path(self.cfg["out_dir"])
         self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        # -------- mlflow ----------
+        mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "file:mlruns"))
+        mlflow.set_experiment(os.environ.get("MLFLOW_EXPERIMENT_NAME", "default"))
+
+        # Give the run a helpful name
+        run_name = f"{self.cfg.get('dino_size','?')}_img{self.cfg['img_size'][0]}_{'lora' if self.cfg.get('use_lora',True) else 'head'}"
+        self.mlflow_run = mlflow.start_run(run_name=run_name)
+
+        # Log key params (avoid dumping giant dicts)
+        log_param("dino_size", self.cfg.get("dino_size"))
+        log_param("img_size",  str(self.cfg.get("img_size")))
+        log_param("use_lora",  bool(self.cfg.get("use_lora", True)))
+        log_param("lora_rank", int(self.cfg.get("lora_rank", 0)))
+        log_param("lora_alpha",int(self.cfg.get("lora_alpha", 0)))
+        log_param("batch_size",int(self.cfg.get("batch_size")))
+        log_param("epochs",    int(self.cfg.get("epochs")))
+        log_param("lr",        float(self.cfg.get("lr")))
+        log_param("weight_decay", float(self.cfg.get("weight_decay")))
+        log_param("loss", self.cfg.get("loss","ce"))
+        log_param("class_weights", str(self.cfg.get("class_weights")))
+        log_param("tversky", f"{self.cfg.get('tversky_alpha',0.7)},{self.cfg.get('tversky_beta',0.3)}")
 
         # -------- transforms ----------
         t = em_seg_transforms(tuple(self.cfg["img_size"]))
@@ -288,46 +313,88 @@ class SegTrainer:
         best_path = self.out_dir / "checkpoint_best.pt"
 
         for epoch in range(1, self.epochs + 1):
-            self.backbone.train(False)  # backbone stays frozen
+            # ---- TRAIN ----
+            self.backbone.train(False)
             self.head.train(True)
 
             running = 0.0
             for batch in self.train_loader:
                 loss, _ = self._step(batch, train=True)
+                if isinstance(loss, float) and (loss != loss):  # NaN guard
+                    continue
                 running += loss
             avg_train = running / max(1, len(self.train_loader))
 
-            # val
+            # ---- VAL ----
             self.head.eval()
             val_loss = 0.0
+
+            # accumulate pixel stats
+            fg_gt_total = 0
+            fg_pred_total = 0
+            bg_gt_total = 0
+            bg_pred_total = 0
+
             with torch.no_grad():
                 for i, batch in enumerate(self.val_loader):
                     loss, logits = self._step(batch, train=False)
                     val_loss += loss
+
+                    imgs, masks = batch
+                    pred = logits.argmax(1)
+
+                    fg_gt_total  += (masks == 1).sum().item()
+                    fg_pred_total+= (pred  == 1).sum().item()
+                    bg_gt_total  += (masks == 0).sum().item()
+                    bg_pred_total+= (pred  == 0).sum().item()
+
                     if i == 0:
-                        imgs, masks = batch
                         self._save_preview(imgs, logits, masks, f"ep{epoch:03d}")
-                        with torch.no_grad():
-                            pred = logits.argmax(1)
-                            for k in range(self.cfg["num_classes"]):
-                                gt_k   = (masks == k).sum().item()
-                                pred_k = (pred  == k).sum().item()
+
             val_loss /= max(1, len(self.val_loader))
-
             print(f"[epoch {epoch}/{self.epochs}] train_loss={avg_train:.4f}  val_loss={val_loss:.4f}")
+            print(f"          val FG: GT={fg_gt_total}  PRED={fg_pred_total} | BG: GT={bg_gt_total}  PRED={bg_pred_total}")
 
-            # Always save "last"
-            ckpt_last = {
+            # ---- MLflow scalars (AFTER computing val) ----
+            log_metric("train/loss", float(avg_train), step=epoch)
+            log_metric("val/loss",   float(val_loss),  step=epoch)
+            log_metric("val/fg_gt_px",   int(fg_gt_total),   step=epoch)
+            log_metric("val/fg_pred_px", int(fg_pred_total), step=epoch)
+            log_metric("val/bg_gt_px",   int(bg_gt_total),   step=epoch)
+            log_metric("val/bg_pred_px", int(bg_pred_total), step=epoch)
+
+            # ---- save checkpoints: last + best ----
+            ckpt = {
                 "head": self.head.state_dict(),
                 "backbone_lora": {k: v for k, v in self.backbone.state_dict().items() if "lora_" in k},
                 "cfg": self.cfg,
                 "epoch": epoch,
                 "val_loss": float(val_loss),
             }
-            torch.save(ckpt_last, self.out_dir / "checkpoint_last.pt")
-
-            # Save best only when improved
+            torch.save(ckpt, self.out_dir / "checkpoint_last.pt")
             if val_loss < best_val:
                 best_val = float(val_loss)
-                torch.save(ckpt_last, best_path)
-                print(f"[info] New best checkpoint -> {best_path} (val_loss={best_val:.4f})")
+                torch.save(ckpt, best_path)
+                print(f"[info] New best -> {best_path} (val_loss={best_val:.4f})")
+                # optional: track best in MLflow
+                log_metric("val/best_loss", best_val, step=epoch)
+
+            # light artifact logging (previews) every 5 epochs is fine
+            try:
+                if epoch % 5 == 0:
+                    log_artifacts(str(self.out_dir / "previews"), artifact_path="previews")
+            except Exception as e:
+                print("[mlflow] preview artifact upload skipped:", e)
+
+        # ---- end of training: log final artifacts once ----
+        try:
+            # if you also write history.csv/loss_curve.png, log them here
+            log_artifacts(str(self.out_dir), artifact_path="run_artifacts")
+        except Exception as e:
+            print("[mlflow] final artifact upload skipped:", e)
+
+        try:
+            mlflow.end_run()
+        except Exception as e:
+            print("[mlflow] end_run() failed:", e)
+
