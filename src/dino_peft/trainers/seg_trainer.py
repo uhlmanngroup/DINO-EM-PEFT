@@ -284,7 +284,9 @@ class SegTrainer:
         save_image(grid, grid_dir / f"{step_tag}_triptych.png")
 
     def train(self):
-        best_val = 1e9
+        best_val = float('inf')
+        best_path = self.out_dir / "checkpoint_best.pt"
+
         for epoch in range(1, self.epochs + 1):
             self.backbone.train(False)  # backbone stays frozen
             self.head.train(True)
@@ -310,18 +312,22 @@ class SegTrainer:
                             for k in range(self.cfg["num_classes"]):
                                 gt_k   = (masks == k).sum().item()
                                 pred_k = (pred  == k).sum().item()
-                                print(f"[val@ep{epoch:03d}] class {k}: GT_pixels={gt_k}  PRED_pixels={pred_k}")
             val_loss /= max(1, len(self.val_loader))
 
             print(f"[epoch {epoch}/{self.epochs}] train_loss={avg_train:.4f}  val_loss={val_loss:.4f}")
 
-            # save best / periodic
-            if (epoch % int(self.cfg["save_every"]) == 0) or (val_loss < best_val):
-                best_val = min(best_val, val_loss)
-                ckpt = {
-                    "head": self.head.state_dict(),
-                    "backbone_lora": {k: v for k, v in self.backbone.state_dict().items() if "lora_" in k},
-                    "cfg": self.cfg,
-                    "epoch": epoch,
-                }
-                torch.save(ckpt, self.out_dir / f"checkpoint_ep{epoch:03d}.pt")
+            # Always save "last"
+            ckpt_last = {
+                "head": self.head.state_dict(),
+                "backbone_lora": {k: v for k, v in self.backbone.state_dict().items() if "lora_" in k},
+                "cfg": self.cfg,
+                "epoch": epoch,
+                "val_loss": float(val_loss),
+            }
+            torch.save(ckpt_last, self.out_dir / "checkpoint_last.pt")
+
+            # Save best only when improved
+            if val_loss < best_val:
+                best_val = float(val_loss)
+                torch.save(ckpt_last, best_path)
+                print(f"[info] New best checkpoint -> {best_path} (val_loss={best_val:.4f})")
