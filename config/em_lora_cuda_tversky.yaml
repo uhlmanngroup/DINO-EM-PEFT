@@ -1,13 +1,13 @@
 # ---- I/O ----
-train_img_dir: /home/cfuste/scratch/datasets/DINO-POC/train/images
-train_mask_dir: /home/cfuste/scratch/datasets/DINO-POC/train/masks
-val_img_dir:    /home/cfuste/scratch/datasets/DINO-POC/test/images
-val_mask_dir:   /home/cfuste/scratch/datasets/DINO-POC/test/masks
+train_img_dir: /home/cfuste/data/datasets/DINO-POC/train/images
+train_mask_dir: /home/cfuste/data/datasets/DINO-POC/train/masks
+val_img_dir:    /home/cfuste/data/datasets/DINO-POC/test/images
+val_mask_dir:   /home/cfuste/data/datasets/DINO-POC/test/masks
 out_dir: runs/exp_stability_tversky
 
 # ---- model / backbone ----
 dino_size: base
-img_size: [448, 448]
+img_size: [476, 476]
 num_classes: 2
 
 # ---- LoRA ----
@@ -18,13 +18,12 @@ lora_alpha: 32
 
 # ---- training ----
 batch_size: 4
-epochs: 30
-lr: 0.0001
+epochs: 40
+lr: 0.00005
 weight_decay: 0.0001
 num_workers: 8
 device: auto
-amp: false            # first run: stability check without AMP
-save_every: 5
+amp: true            # first run: stability check without AMP
 
 # ---- loss (CE + Tversky on foreground) ----
 loss: ce_tversky      
