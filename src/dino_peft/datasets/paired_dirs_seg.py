@@ -54,6 +54,7 @@ class PairedDirsSegDataset(Dataset):
 
         self.pairs = []
 
+        # Check that their are same number of images and masks
         if pair_mode == "sorted":
             if len(imgs) != len(masks):
                 raise RuntimeError(
@@ -62,7 +63,7 @@ class PairedDirsSegDataset(Dataset):
                 )
             self.pairs = list(zip(imgs, masks))
 
-        else:  # "stem" matching
+        else:  # "stem" matching (with the name file)
             def norm_mask_stem(p: Path):
                 s = p.stem
                 if mask_prefix and s.startswith(mask_prefix):
@@ -138,15 +139,15 @@ class PairedDirsSegDataset(Dataset):
             img = self.transform(img)
 
         # to numpy (single channel)
-        m = np.array(mask)
-        if m.ndim == 3:       # just in case something slipped through
-            m = m[..., 0]
+        mask = np.array(mask)
+        if mask.ndim == 3:       # just in case something slipped through
+            mask = mask[..., 0]
 
         # binarize or keep labels
         if self.binarize:
-            m = (m > self.thresh).astype(np.int64)  # 0/1
+            mask = (mask > self.thresh).astype(np.int64)  # 0/1
         else:
-            m = m.astype(np.int64)
+            mask = mask.astype(np.int64)
 
-        return img, torch.from_numpy(m)
+        return img, torch.from_numpy(mask)
 

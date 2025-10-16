@@ -1,8 +1,8 @@
 # Composed dataset (train/test already prepared)
 train_img_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/train/images"
 train_mask_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/train/masks"
-val_img_dir:   "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/images"
-val_mask_dir:  "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/masks"
+test_img_dir:   "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/images"
+test_mask_dir:  "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/masks"
 
 # outputs
 out_dir: "/Users/cfuste/Documents/Results/DINO-PEFT/small-350-r8-dice"

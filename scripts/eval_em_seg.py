@@ -9,7 +9,7 @@ import mlflow
 from mlflow import MlflowClient
 
 from dino_peft.datasets.paired_dirs_seg import PairedDirsSegDataset
-from dino_peft.utils.transforms import em_seg_transforms
+from dino_peft.utils.transforms import em_seg_transforms, denorm_imagenet
 from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
 
@@ -97,11 +97,14 @@ def eval_loop(backbone, head, loader, device, num_classes, out_dir=None, preview
         # Previews (triptychs)
         if prev_dir is not None and prev_count < preview_n:
             H, W = masks.shape[-2:]
-            im = imgs.clamp(0,1)
+            im = denorm_imagenet(imgs)
             if im.shape[-2:] != (H,W):
                 im = F.interpolate(im, size=(H,W), mode="bilinear", align_corners=False)
+            im = im.clamp(0,1)
+
             pr_rgb = colorize_mask(pred, num_classes)
             gt_rgb = colorize_mask(masks, num_classes)
+            
             trip = torch.cat([im, pr_rgb, gt_rgb], dim=0)
             save_image(make_grid(trip, nrow=im.shape[0]), prev_dir / f"sample_{b:04d}.png")
             prev_count += 1
@@ -162,7 +165,7 @@ def main():
     # dataset (test split from cfg)
     t = em_seg_transforms(tuple(cfg["img_size"]))
     ds = PairedDirsSegDataset(
-        cfg["val_img_dir"], cfg["val_mask_dir"],
+        cfg["test_img_dir"], cfg["test_mask_dir"],
         img_size=cfg["img_size"], to_rgb=True, transform=t,
         binarize=bool(cfg.get("binarize", True)),
         binarize_threshold=int(cfg.get("binarize_threshold", 128)),

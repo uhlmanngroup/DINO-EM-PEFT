@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from mlflow.tracking import MlflowClient  # <-- needed
 
 from dino_peft.datasets.paired_dirs_seg import PairedDirsSegDataset
-from dino_peft.utils.transforms import em_seg_transforms
+from dino_peft.utils.transforms import em_seg_transforms, denorm_imagenet
 from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
 from dino_peft.models.lora import inject_lora, lora_parameters
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
@@ -92,39 +92,42 @@ class SegTrainer:
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         # -------- transforms ----------
-        t = em_seg_transforms(tuple(self.cfg["img_size"]))
+        t_train = em_seg_transforms(tuple(self.cfg["img_size"]))   # your current (deterministic) pipeline
+        t_val   = None                                             # simplest: no transform in val
 
-        # -------- datasets ----------
-        if "train_img_dir" not in self.cfg or "train_mask_dir" not in self.cfg:
-            raise ValueError("Config must provide train_img_dir and train_mask_dir.")
-
-        self.train_ds = PairedDirsSegDataset(
-            self.cfg["train_img_dir"],
+        # -------- base dataset (NO transform) ----------
+        base_ds = PairedDirsSegDataset(
+            self.cfg["train_img_dir"], 
             self.cfg["train_mask_dir"],
-            img_size=self.cfg["img_size"],
-            to_rgb=True,
-            transform=t,
+            img_size=self.cfg["img_size"], 
+            to_rgb=True, 
+            transform=None,
             binarize=bool(self.cfg.get("binarize", True)),
             binarize_threshold=int(self.cfg.get("binarize_threshold", 128)),
         )
 
-        if "val_img_dir" in self.cfg and "val_mask_dir" in self.cfg:
-            self.val_ds = PairedDirsSegDataset(
-                self.cfg["val_img_dir"],
-                self.cfg["val_mask_dir"],
-                img_size=self.cfg["img_size"],
-                to_rgb=True,
-                transform=t,
+        # -------- 10% validation split ----------
+        val_ratio = float(self.cfg.get("val_ratio", 0.1))
+        n = len(base_ds)
+        n_val = max(1, int(round(n * val_ratio)))
+        n_train = n - n_val
+        g = torch.Generator().manual_seed(int(self.cfg.get("split_seed", 42)))
+        perm = torch.randperm(n, generator=g).tolist()
+        train_idx, val_idx = perm[:n_train], perm[n_train:]
+
+        def make_subset_dataset(src_ds, index_list, transform):
+            ds = PairedDirsSegDataset(
+                self.cfg["train_img_dir"], self.cfg["train_mask_dir"],
+                img_size=self.cfg["img_size"], to_rgb=True, transform=transform,
                 binarize=bool(self.cfg.get("binarize", True)),
                 binarize_threshold=int(self.cfg.get("binarize_threshold", 128)),
             )
-        else:
-            val_ratio = float(self.cfg.get("val_ratio", 0.1))
-            n = len(self.train_ds)
-            n_val = max(1, int(round(n * val_ratio)))
-            n_train = n - n_val
-            g = torch.Generator().manual_seed(int(self.cfg.get("split_seed", 42)))
-            self.train_ds, self.val_ds = random_split(self.train_ds, [n_train, n_val], generator=g)
+            ds.pairs = [src_ds.pairs[i] for i in index_list]
+            return ds
+
+        # -------- final datasets ----------
+        self.train_ds = make_subset_dataset(base_ds, train_idx, t_train)
+        self.val_ds   = make_subset_dataset(base_ds, val_idx,   t_val)   # no transform -> no aug
 
         # -------- loaders ----------
         pin = (self.device.type == "cuda")
@@ -263,18 +266,20 @@ class SegTrainer:
         preds_cpu = logits[:4].detach().argmax(1).cpu()
         gts_cpu   = masks[:4].detach().cpu()
 
+        imgs_vis = denorm_imagenet(imgs_cpu).clamp(0,1)
+
         pred_rgb = self._colorize_mask(preds_cpu, self.cfg["num_classes"])
         gt_rgb   = self._colorize_mask(gts_cpu,   self.cfg["num_classes"])
 
         H, W = gts_cpu.shape[-2:]
-        if imgs_cpu.shape[-2:] != (H, W):
-            imgs_cpu = F.interpolate(imgs_cpu, size=(H, W), mode="bilinear", align_corners=False)
+        if imgs_vis.shape[-2:] != (H, W):
+            imgs_vis = F.interpolate(imgs_vis, size=(H, W), mode="bilinear", align_corners=False)
 
-        save_image(imgs_cpu,  grid_dir / f"{step_tag}_img.png",  nrow=4)
+        save_image(imgs_vis,  grid_dir / f"{step_tag}_img.png",  nrow=4)
         save_image(pred_rgb,  grid_dir / f"{step_tag}_pred.png", nrow=4)
         save_image(gt_rgb,    grid_dir / f"{step_tag}_gt.png",   nrow=4)
 
-        trip = torch.cat([imgs_cpu, pred_rgb, gt_rgb], dim=0)
+        trip = torch.cat([imgs_vis, pred_rgb, gt_rgb], dim=0)
         grid = make_grid(trip, nrow=4)
         save_image(grid, grid_dir / f"{step_tag}_triptych.png")
 
