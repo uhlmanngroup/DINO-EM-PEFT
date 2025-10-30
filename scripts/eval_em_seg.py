@@ -16,6 +16,7 @@ from dino_peft.utils.viz import colorize_mask
 from dino_peft.utils.plots import save_triptych_grid
 from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
+from dino_peft.models.lora import inject_lora 
 
 
 @torch.no_grad()
@@ -179,15 +180,16 @@ def main():
                         pin_memory=(device.type == "cuda"))
 
     # model
-    bb = DINOv2FeatureExtractor(
-        size=cfg["dino_size"],
-        device=str(device),
-        use_lora=bool(cfg.get("use_lora", True)),
-        lora_rank=int(cfg.get("lora_rank", 16)),
-        lora_alpha=int(cfg.get("lora_alpha", 16)),
-        lora_dropout=float(cfg.get("lora_dropout", 0.0)),
-    )
-    head = SegHeadDeconv(bb.embed_dim, cfg["num_classes"]).to(device)
+    bb = DINOv2FeatureExtractor(size=cfg["dino_size"], device=str(device))
+    use_lora = cfg.get("use_lora", True)
+    if use_lora:
+        targets = cfg.get("lora_targets", ["attn.qkv", "attn.proj"])
+        r = int(cfg.get("lora_rank", 8))
+        alpha = int(cfg.get("lora_alpha", 16))
+        lora_names = inject_lora(bb.vit, target_substrings=targets, r=r, alpha=alpha)
+
+    bb.to(device)
+    head = SegHeadDeconv(in_ch=bb.embed_dim, num_classes=cfg["num_classes"], n_ups=4, base_ch=512).to(device)
 
     # load checkpoint (LoRA + head)
     ckpt = torch.load(ckpt_path, map_location=device)
