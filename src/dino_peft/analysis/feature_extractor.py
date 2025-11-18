@@ -89,14 +89,21 @@ def extract_features_from_folder(
             [f"{name}:{idx}" for name, idx in name_to_id.items()], dtype=object
         )  
 
-        return {
-            "features": features, 
-            "image_paths":all_paths,
-            "dataset_ids": dataset_ids,
-            "dataset_names": all_dataset_names,
-            "dataset_name_to_id": dataset_name_to_id,
-            "dino_size": np.array([dino_size], dtype=object),
-        }
+        features_np = np.concatenate(all_features, axis=0)  # (N, C)
+        unique_names = sorted(set(all_dataset_names))
+        name_to_id = {name: idx for idx, name in enumerate(unique_names)}
+        dataset_ids = np.array([name_to_id[n] for n in all_dataset_names], dtype=np.int32)
+        dataset_name_to_id = np.array([f"{name}:{idx}" for name, idx in name_to_id.items()], dtype=object)
+
+
+    return {
+    "features": features_np,
+    "image_paths": np.array(all_paths, dtype=object),
+    "dataset_ids": dataset_ids,
+    "dataset_names": np.array(all_dataset_names, dtype=object),
+    "dataset_name_to_id": dataset_name_to_id,
+    "dino_size": np.array([dino_size], dtype=object),
+}
 
 
         

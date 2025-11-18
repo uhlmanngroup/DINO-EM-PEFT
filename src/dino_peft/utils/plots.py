@@ -1,7 +1,12 @@
 # utils/plots.py
-from typing import Iterable, Optional, Sequence, Tuple, Union
+# This file contains multiple plots from differen part of the pipeline
+
 import numpy as np
 import matplotlib.pyplot as plt
+
+from pathlib import Path
+from typing import Iterable, Optional, Sequence, Union, Dict
+
 
 try:
     import torch
@@ -119,5 +124,51 @@ def save_triptych_grid(
         fig.suptitle(title, fontsize=14)
 
     fig.savefig(out_path, dpi=dpi)
+    plt.close(fig)
+    return out_path
+
+
+def scatter_2d(
+    xy: np.ndarray,
+    labels: Optional[np.ndarray],
+    label_names: Optional[Dict[int, str]],
+    out_path: Path | str,
+    title: str = "",
+    figsize=(6, 6),
+    alpha=0.7,
+    s=12,
+):
+    """
+    xy: (N, 2) array of PCA coords.
+    labels: (N,) ints or None. If None, single-color plot.
+    label_names: mapping {id: name} for legend; optional.
+    """
+    xy = np.asarray(xy)
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if labels is None:
+        ax.scatter(xy[:, 0], xy[:, 1], c="C0", alpha=alpha, s=s, label="data")
+    else:
+        labels = np.asarray(labels)
+        uniq = np.unique(labels)
+        # pick a palette big enough
+        cmap = plt.get_cmap("tab20" if len(uniq) > 10 else "tab10")
+        for i, lbl in enumerate(uniq):
+            mask = labels == lbl
+            name = label_names.get(int(lbl), str(lbl)) if label_names else str(lbl)
+            ax.scatter(xy[mask, 0], xy[mask, 1], color=cmap(i % cmap.N), alpha=alpha, s=s, label=name)
+
+    ax.set_xlabel("PC 1")
+    ax.set_ylabel("PC 2")
+    if title:
+        ax.set_title(title)
+    if labels is not None:
+        ax.legend(loc="best", fontsize=8, markerscale=1.2, frameon=False)
+    ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.3)
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=300)
     plt.close(fig)
     return out_path
