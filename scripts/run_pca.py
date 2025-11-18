@@ -6,7 +6,7 @@ import yaml
 import numpy as np
 from pathlib import Path
 
-from dino_peft.analysis.dimred import load_feature_npz, run_pca
+from dino_peft.analysis.dimred import load_feature_npz, run_pca, run_umap
 from dino_peft.utils.plots import scatter_2d
 
 def load_cfg(path: Path):
@@ -24,19 +24,38 @@ def main():
     pca_cfg = cfg.get("pca", {})
 
     input_path = Path(data_cfg["input_path"])
-    output_path = Path(data_cfg.get("output_path", input_path.with_suffix(".png")))
+    output_dir = Path(data_cfg["output_path"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = input_path.stem
+    pca_out = output_dir / f"{stem}_pca.png"
+    umap_out = output_dir / f"{stem}_umap.png"
 
+    # PCA config
     n_components = int(pca_cfg.get("n_components", 2))
     plot_dims = pca_cfg.get("plot_dims", [0, 1])
     whiten = bool(pca_cfg.get("whiten", False))
     l2norm = bool(pca_cfg.get("l2norm", False))
     seed = int(pca_cfg.get("seed", 0))
 
+    # UMAP Config
+    umap_cfg = cfg.get("umap", {})
+    umap_enabled = bool(umap_cfg.get("enabled", False))
+    umap_output = Path(umap_cfg.get("output_path", input_path.with_name(input_path.stem + "_umap.png")))
+    pre_umap_dim = int(umap_cfg.get("pca_dim", 50))  # PCA dim before UMAP
+    umap_params = {
+        "n_neighbors": int(umap_cfg.get("n_neighbors", 15)),
+        "min_dist": float(umap_cfg.get("min_dist", 0.1)),
+        "n_components": int(umap_cfg.get("n_components", 2)),
+        "metric": umap_cfg.get("metric", "euclidean"),
+        "random_state": int(umap_cfg.get("seed", seed)),
+    }
+
     # Load features/labels
     bundle = load_feature_npz(input_path)
     feats = np.asarray(bundle.features)
 
-    # Run PCA
+
+    # ======================== Run PCA ====================================
     pca, emb = run_pca(
         feats,
         n_components=n_components,
@@ -71,13 +90,34 @@ def main():
         xy=xy,
         labels=bundle.dataset_ids,
         label_names=label_names,
-        out_path=output_path,
+        out_path=pca_out,
         title=title,
     )
 
-    print(f"Saved PCA scatter to {output_path}")
+    print(f"Saved PCA scatter to {pca_out}")
     print(f"N={emb.shape[0]}, original_dim={feats.shape[1]}, pca_dim={n_components}")
     print(f"Explained variance (first components): {evr[: min(5, len(evr))]}")
+
+    # ======================== Run UMAP ====================================
+    if umap_enabled:
+        pca_pre, feats_pre = run_pca(
+            feats,
+            n_components=pre_umap_dim,
+            whiten=whiten,
+            random_state=seed,
+            l2norm=l2norm,
+        )
+        _, umap_emb = run_umap(feats_pre, **umap_params)
+        title_umap = f"DINO {dino_size} PCA{pre_umap_dim}→UMAP (nn={umap_params['n_neighbors']}, md={umap_params['min_dist']})" if dino_size else f"PCA{pre_umap_dim}→UMAP (nn={...})"
+        scatter_2d(
+            xy=umap_emb[:, :2],
+            labels=bundle.dataset_ids,
+            label_names=label_names,
+            out_path=umap_out,
+            title=title_umap,
+        )
+        print(f"Saved UMAP scatter to {umap_out}")
+
 
 if __name__ == "__main__":
     main()

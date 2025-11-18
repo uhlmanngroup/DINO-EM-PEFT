@@ -1,10 +1,19 @@
 data:
   input_path: "/Users/cfuste/Documents/Results/DINO-LoRA/features/lucchi_droso_dinov2-base_zero-shot.npz"
-  output_path: "/Users/cfuste/Documents/Results/DINO-LoRA/features/lucchi_droso_pca.png"
+  output_path: "/Users/cfuste/Documents/Results/DINO-LoRA/features"
 
 pca:
-  n_components: 2         # total PCA dims; use >2 if you later want UMAP
-  plot_dims: [0, 1]       # which PCA axes to plot
+  n_components: 50  # pre-UMAP PCA
+  plot_dims: [0, 1] # for PCA plots if desired
   whiten: false
   l2norm: false
   seed: 0
+
+umap:
+  enabled: true
+  n_neighbors: 15
+  min_dist: 0.1
+  n_components: 2
+  metric: euclidean  # or cosine
+  seed: 0
+  output_path: ...  # optional override; else derive from input

@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Tuple
 
+import umap
 import numpy as np
 from sklearn.decomposition import PCA
 
@@ -23,6 +24,12 @@ def load_feature_npz(path: Path | str) -> FeatureBundle:
         dataset_names = data.get("dataset_names")
         image_paths = data.get("image_paths")
         dataset_name_to_id = data.get("dataset_name_to_id")
+        dino_size = data.get("dino_size")
+        if dino_size is not None:
+            try:
+                dino_size = dino_size.tolist()[0]
+            except Exception:
+                pass  # leave as-is
 
         # Normalize dtypes
         if dataset_ids is not None:
@@ -51,6 +58,7 @@ def load_feature_npz(path: Path | str) -> FeatureBundle:
                 "dataset_name_to_id": name_to_id,
                 "raw_keys": list(data.keys()),
                 "source": str(path),
+                "dino_size": dino_size,
             },
         )
 
@@ -87,3 +95,14 @@ def run_pca(
     pca = PCA(n_components=n_components, whiten=whiten, random_state=random_state)
     emb = pca.fit_transform(x)
     return pca, emb
+
+def run_umap(features, n_neighbors=15, min_dist=0.1, n_components=2, metric="euclidean", random_state=0):
+    reducer = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        n_components=n_components,
+        metric=metric,
+        random_state=random_state,
+    )
+    emb = reducer.fit_transform(features)
+    return reducer, emb
