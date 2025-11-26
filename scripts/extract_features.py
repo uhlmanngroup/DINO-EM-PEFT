@@ -21,6 +21,12 @@ DEFAULT_CFG_PATH = Path(__file__).parent.parent / "config" / "em_unsupervised_fe
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Extract DINO features for EM datasets.")
     ap.add_argument("--cfg", type=str, default=str(DEFAULT_CFG_PATH), help="Path to YAML config.")
+    ap.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Optional checkpoint (.pt) to load LoRA weights from.",
+    )
     return ap.parse_args()
 
 
@@ -69,6 +75,12 @@ def main() -> None:
     data_cfg = cfg.get("data", {})
     model_cfg = cfg.get("model", {})
     runtime_cfg = cfg.get("runtime", {})
+    checkpoint_arg = args.checkpoint
+    checkpoint_cfg = model_cfg.get("checkpoint")
+    checkpoint_path = checkpoint_arg or checkpoint_cfg
+    checkpoint_path = Path(checkpoint_path).expanduser() if checkpoint_path else None
+    if checkpoint_path and not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     if "img_size" not in runtime_cfg:
         img_size_cfg = deepcopy(DEFAULT_IMG_SIZE_CFG)
@@ -116,6 +128,8 @@ def main() -> None:
     print(f"[extract_features] num_workers= {num_workers}")
     print(f"[extract_features] device     = {device}")
     print(f"[extract_features] img_size   = {img_size_cfg}")
+    if checkpoint_path:
+        print(f"[extract_features] checkpoint= {checkpoint_path}")
 
     features_dict = extract_features_from_folder(
         data_dir=data_dir,
@@ -124,6 +138,7 @@ def main() -> None:
         batch_size=batch_size,
         num_workers=num_workers,
         device=device,
+        checkpoint_path=checkpoint_path,
     )
 
     # Ensure everything is NumPy / Python-native before saving

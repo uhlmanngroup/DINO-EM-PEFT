@@ -9,6 +9,7 @@ from pathlib import Path
 from dino_peft.utils.transforms import em_dino_unsup_transforms
 from dino_peft.datasets.flat_image_folder import FlatImageFolder
 from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
+from dino_peft.models.lora import inject_lora
 
 @torch.no_grad()
 def extract_features_from_folder(
@@ -18,6 +19,7 @@ def extract_features_from_folder(
     batch_size: int = 16,
     num_workers: int = 4,
     device: str = "cuda",
+    checkpoint_path: str | Path | None = None,
 ):
     """
     Run DINOv2 feature extractor on all images in a folder and return .npz file with features.
@@ -40,12 +42,52 @@ def extract_features_from_folder(
         dataset_names:       [N] object array of strings ("lucchi" or "droso")
         dataset_name_to_id:  [K] object array of "name:id" strings
         size:                [1] object array size of the DINO model, e.g. ["base"]
+        checkpoint_path: optional checkpoint containing LoRA weights to load.
     """
     data_dir = Path(data_dir)
+    checkpoint_path = Path(checkpoint_path).expanduser() if checkpoint_path else None
+    device_obj = device if isinstance(device, torch.device) else torch.device(device)
+    device_type = device_obj.type
 
     # Build model 
-    model = DINOv2FeatureExtractor(size=dino_size, device=device)
-    model.eval() 
+    model = DINOv2FeatureExtractor(size=dino_size, device=device_obj)
+    model.eval()
+
+    if checkpoint_path:
+        print(f"[feature_extractor] Loading checkpoint: {checkpoint_path}")
+        ckpt = torch.load(checkpoint_path, map_location=device_obj)
+        ckpt_cfg = ckpt.get("cfg", {}) or {}
+        ckpt_dino = ckpt_cfg.get("dino_size")
+        if ckpt_dino and ckpt_dino != dino_size:
+            print(f"[feature_extractor] WARNING: checkpoint dino_size={ckpt_dino} != requested {dino_size}")
+        use_lora = bool(ckpt_cfg.get("use_lora", False))
+        lora_rank = int(ckpt_cfg.get("lora_rank", 0) or 0)
+        lora_alpha = int(ckpt_cfg.get("lora_alpha", 0) or 0)
+        lora_targets = ckpt_cfg.get("lora_targets", ["attn.qkv", "attn.proj"])
+        if use_lora and lora_rank > 0:
+            replaced = inject_lora(
+                model.vit,
+                target_substrings=lora_targets,
+                r=lora_rank,
+                alpha=lora_alpha if lora_alpha > 0 else lora_rank,
+            )
+            lora_state = ckpt.get("backbone_lora") or {}
+            if not lora_state:
+                raise RuntimeError("Checkpoint does not contain backbone_lora weights.")
+            model_state = model.state_dict()
+            missing = []
+            for key, tensor in lora_state.items():
+                if key in model_state:
+                    model_state[key] = tensor
+                else:
+                    missing.append(key)
+            if missing:
+                raise RuntimeError(f"Missing LoRA keys in backbone: {missing[:5]}{'...' if len(missing) > 5 else ''}")
+            model.load_state_dict(model_state)
+            model.eval()
+            print(f"[feature_extractor] Loaded LoRA weights ({len(replaced)} layers) from checkpoint.")
+        else:
+            print("[feature_extractor] Checkpoint has no LoRA weights to load; using base backbone.")
 
     # Data loader using transforms for EM segmentation
     transform = em_dino_unsup_transforms(img_size=img_size)
@@ -67,7 +109,7 @@ def extract_features_from_folder(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=device.startswith("cuda"),
+        pin_memory=(device_type == "cuda"),
         collate_fn=pad_collate,
     )
 
@@ -76,7 +118,7 @@ def extract_features_from_folder(
     all_dataset_names = []
 
     for imgs, paths in loader:
-        imgs = imgs.to(device, non_blocking=True)
+        imgs = imgs.to(device_obj, non_blocking=True)
         features = model(imgs)  # (B, C, H', W')
         features = features.mean(dim=[2, 3])  # global average pool to (B, C)
         feats_np = features.cpu().numpy().astype("float32")
