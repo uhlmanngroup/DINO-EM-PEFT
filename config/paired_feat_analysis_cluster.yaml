@@ -5,14 +5,14 @@
 
 experiment_id: "2025-01-05_F1_dinopoc_dinov2-base_lora-r16_feats"
 results_root: "/home/cfuste/data/DINO-LoRA"
-task_type: "feat-analysis/paired-lora"
+task_type: "feat-analysis/paired-nolora"
 
 data:
   data_dir: "/home/cfuste/data/datasets/DINO-POC/test/images"
 
 model:
   dino_size: "base"
-  checkpoint: "/home/cfuste/data/DINO-LoRA/seg/paired-nolora/2025-01-01_A2_dinopoc_dinov2-base_head-r16_seg_pairedgrid24394031_rep1_s2_base/ckpts/best_model.pt"
+  checkpoint: "/home/cfuste/data/DINO-LoRA/seg/paired-lora/2025-01-01_A2_dinopoc_dinov2-base_lora-r16_seg_pairedgrid24370385_rep1_s2_base/ckpts/best_model.pt"
 
 runtime:
   batch_size: 16

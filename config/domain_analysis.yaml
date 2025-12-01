@@ -1,17 +1,17 @@
 # Domain analysis example config (update paths + experiment metadata before running).
 
 experiment_id: "2025-01-05_B1_domain-gap_demo"
-results_root: "/Users/cfuste/Documents/Results/DINO-LoRA/feats"
+results_root: "/home/cfuste/data/DINO-LoRA/feat-analysis/paired-nolora"   # TO CHANGE
 task_type: "domain-analysis"
 
 domain_analysis:
   domain1:
-    npz: "/Users/cfuste/Documents/Results/DINO-LoRA/feats/2025-01-01_A5_lucchi+droso_dinov2-base_lora-none_feats/features.npz"
+    npz: "/home/cfuste/data/DINO-LoRA/feat-analysis/paired-nolora/2025-01-05_F1_dinopoc_dinov2-base_lora-r16_feats_featgrid24503575_rep1_s2_base/features.npz"
     # Optional filters if the NPZ contains multiple datasets
     dataset_names: ["lucchi"]
     # dataset_ids: [0]
   domain2:
-    npz: "/Users/cfuste/Documents/Results/DINO-LoRA/feats/2025-01-01_A5_lucchi+droso_dinov2-base_lora-none_feats/features.npz"
+    npz: "/home/cfuste/data/DINO-LoRA/feat-analysis/paired-nolora/2025-01-05_F1_dinopoc_dinov2-base_lora-r16_feats_featgrid24503575_rep1_s2_base/features.npz"
     dataset_names: ["droso"]
     # dataset_ids: [1]
   n_components: 64
