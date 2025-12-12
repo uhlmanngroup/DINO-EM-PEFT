@@ -18,7 +18,7 @@ from pathlib import Path
 
 def extract_job_id(text: str) -> str | None:
     """Return the numeric job id embedded in a path-like string."""
-    m = re.search(r"(?:pairedgrid|lucchigrid)(\d+)", text)
+    m = re.search(r"(?:pairedgrid|lucchigrid|drosogrid|droso)(\d+)", text)
     if m:
         return m.group(1)
     m = re.search(r"-(\d+)(?:_[0-9]+)?$", text.replace(".out", ""))
