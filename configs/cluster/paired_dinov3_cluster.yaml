@@ -38,13 +38,19 @@ num_classes: 2
 
 
 # ---- LoRA ----
-use_lora: false
-lora_targets: [attn.qkv, attn.proj]
+use_lora: true
+# lora_targets: [attn.qkv, attn.proj]
 lora_rank: 16
 lora_alpha: 32
+lora:
+  enabled: true
+  target_policy: vit_attention_only
+  layer_selection: all
+  exclude: [head, decoder, seg_head]
+  compatibility_mode: true
 
 # ---- training ----
-batch_size: 1
+batch_size: 2
 epochs: 500
 patience: 20 # early stopping
 lr: 0.00005
