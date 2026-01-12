@@ -8,8 +8,8 @@ test_img_dir:    "/home/cfuste/data/datasets/Lucchi++/Test_In"
 test_mask_dir:   "/home/cfuste/data/datasets/Lucchi++/Test_Out"
 
 # results + experiment naming (stored under /data to persist on the cluster)
-experiment_id: "2025-01-02_A1_lucchi-only_dinov3-vits16_head_seg"
-results_root: "/home/cfuste/data/DINO-LoRA"
+experiment_id: "2025-01-09_lucchi-only_dinov3-vits16_head_seg"
+results_root: "/home/cfuste/data/DINO-LoRA/dinov3"
 task_type: "seg"
 
 # dataset pairing (Lucchi images are named maskXXXX vs masks as digits)
@@ -25,8 +25,8 @@ backbone:
   name: dinov3
   variant: vits16
   load_backend: torchhub
-  repo_dir: /home/cfuste/data/GitHub/dinov3
-  weights: /home/cfuste/data/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  repo_dir: /home/cfuste/GitHub/dinov3
+  weights: /home/cfuste/data/models/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
   preprocess:
     preset: em
 dino_size: vits16
@@ -50,7 +50,7 @@ lora:
   compatibility_mode: true
 
 # ---- training ----
-batch_size: 1          # tightened for low-memory smoke tests on standard GPUs
+batch_size: 4          # tightened for low-memory smoke tests on standard GPUs
 epochs: 1000
 patience: 20
 lr: 0.00005
