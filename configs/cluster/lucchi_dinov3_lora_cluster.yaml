@@ -25,7 +25,7 @@ backbone:
   name: dinov3
   variant: vits16
   load_backend: torchhub
-  repo_dir: /home/cfuste/data/GitHub/dinov3
+  repo_dir: /home/cfuste/GitHub/dinov3
   weights: /home/cfuste/data/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
   preprocess:
     preset: em

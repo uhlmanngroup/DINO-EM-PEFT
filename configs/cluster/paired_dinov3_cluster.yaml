@@ -38,12 +38,12 @@ num_classes: 2
 
 
 # ---- LoRA ----
-use_lora: false
+use_lora: true
 # lora_targets: [attn.qkv, attn.proj]
 lora_rank: 16
 lora_alpha: 32
 lora:
-  enabled: false
+  enabled: true
   target_policy: vit_attention_only
   layer_selection: all
   exclude: [head, decoder, seg_head]
