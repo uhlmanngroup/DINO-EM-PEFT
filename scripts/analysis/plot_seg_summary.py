@@ -271,46 +271,124 @@ def plot_run_metric_distribution(
         print(f"[warn] No run-level rows available for {metric}, skipping plot.")
         return
 
-    g = sns.catplot(
-        data=data,
-        kind="box",
-        x="dino_size",
-        y=metric,
-        hue="use_lora_label",
-        col="dataset_title",
-        order=DINO_ORDER,
-        hue_order=USE_LORA_LABELS,
-        palette=PALETTE,
-        height=4.2,
-        aspect=1.1,
-        legend=False,
-        sharey=True,
-        linewidth=1.1,
-        width=0.6,
-        fliersize=0,
-    )
-    for ax, title in zip(g.axes.flat, g.col_names):
+    size_order = [v for v in DINO_ORDER if v in data["dino_size"].unique().tolist()]
+    if not size_order:
+        size_order = data["dino_size"].unique().tolist()
+    hue_order = [v for v in USE_LORA_LABELS if v in data["use_lora_label"].unique().tolist()]
+    if not hue_order:
+        hue_order = data["use_lora_label"].unique().tolist()
+
+    try:
+        g = sns.catplot(
+            data=data,
+            kind="box",
+            x="dino_size",
+            y=metric,
+            hue="use_lora_label",
+            col="dataset_title",
+            order=size_order,
+            hue_order=hue_order,
+            palette=PALETTE,
+            height=4.2,
+            aspect=1.1,
+            legend=False,
+            sharey=True,
+            linewidth=1.1,
+            width=0.6,
+            fliersize=0,
+        )
+        for ax, title in zip(g.axes.flat, g.col_names):
+            subset = data[data["dataset_title"] == title]
+            sns.stripplot(
+                data=subset,
+                x="dino_size",
+                y=metric,
+                hue="use_lora_label",
+                order=size_order,
+                hue_order=hue_order,
+                dodge=True,
+                palette=PALETTE,
+                alpha=0.55,
+                linewidth=0.3,
+                edgecolor="white",
+                ax=ax,
+                legend=False,
+                marker="o",
+                size=4.5,
+            )
+            stylize_axis(ax, metric, label)
+            ax.set_title(title)
+        g.fig.suptitle(f"Run-level {label} distribution", y=0.98, fontsize=15)
+        handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="s",
+                linestyle="",
+                label=label_name,
+                markersize=10,
+                markerfacecolor=PALETTE.get(label_name, "#666666"),
+                markeredgecolor="#444444",
+            )
+            for label_name in hue_order
+        ]
+        g.fig.legend(
+            handles=handles,
+            loc="upper center",
+            ncol=max(1, len(handles)),
+            title="LoRA usage",
+            frameon=False,
+        )
+        g.fig.subplots_adjust(top=0.88, bottom=0.17)
+        g.savefig(output_path, dpi=dpi, bbox_inches="tight")
+        plt.close(g.fig)
+        print(f"[info] Wrote {output_path}")
+        return
+    except UnboundLocalError as exc:
+        if "boxprops" not in str(exc):
+            raise
+        print(f"[warn] seaborn boxplot failed ({exc}); falling back to manual plots.")
+
+    titles = data["dataset_title"].unique().tolist()
+    ncols = max(1, len(titles))
+    fig, axes = plt.subplots(1, ncols, figsize=(4.2 * ncols, 4.2), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+    for ax, title in zip(axes, titles):
         subset = data[data["dataset_title"] == title]
+        sns.boxplot(
+            data=subset,
+            x="dino_size",
+            y=metric,
+            hue="use_lora_label",
+            order=size_order,
+            hue_order=hue_order,
+            palette=PALETTE,
+            linewidth=1.1,
+            width=0.6,
+            fliersize=0,
+            ax=ax,
+        )
         sns.stripplot(
             data=subset,
             x="dino_size",
             y=metric,
             hue="use_lora_label",
-            order=DINO_ORDER,
-            hue_order=USE_LORA_LABELS,
+            order=size_order,
+            hue_order=hue_order,
             dodge=True,
             palette=PALETTE,
             alpha=0.55,
             linewidth=0.3,
             edgecolor="white",
             ax=ax,
-            legend=False,
             marker="o",
             size=4.5,
         )
+        if ax.legend_:
+            ax.legend_.remove()
         stylize_axis(ax, metric, label)
         ax.set_title(title)
-    g.fig.suptitle(f"Run-level {label} distribution", y=0.98, fontsize=15)
     handles = [
         Line2D(
             [0],
@@ -319,21 +397,22 @@ def plot_run_metric_distribution(
             linestyle="",
             label=label_name,
             markersize=10,
-            markerfacecolor=PALETTE[label_name],
+            markerfacecolor=PALETTE.get(label_name, "#666666"),
             markeredgecolor="#444444",
         )
-        for label_name in USE_LORA_LABELS
+        for label_name in hue_order
     ]
-    g.fig.legend(
+    fig.suptitle(f"Run-level {label} distribution", y=0.98, fontsize=15)
+    fig.legend(
         handles=handles,
         loc="upper center",
-        ncol=len(handles),
+        ncol=max(1, len(handles)),
         title="LoRA usage",
         frameon=False,
     )
-    g.fig.subplots_adjust(top=0.88, bottom=0.17)
-    g.savefig(output_path, dpi=dpi, bbox_inches="tight")
-    plt.close(g.fig)
+    fig.subplots_adjust(top=0.88, bottom=0.17)
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
     print(f"[info] Wrote {output_path}")
 
 
