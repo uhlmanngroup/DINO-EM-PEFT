@@ -27,7 +27,7 @@ CFG="configs/cluster/paired_dinov2_paired_balance.yaml"
 
 echo "[ablation] seed=${SEED} cfg=${CFG}"
 
-"$PY" scripts/ablation_paired_balance_dinov2.py \\
-  --cfg "$CFG" \\
-  --seed "$SEED" \\
+"$PY" scripts/ablation_paired_balance_dinov2.py \
+  --cfg "$CFG" \
+  --seed "$SEED" \
   --variant both
