@@ -18,6 +18,27 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     go = None
 
+DISPLAY_NAME_MAP = {
+    "droso": "VNC",
+    "lucchi": "Lucchi++",
+}
+
+def _display_name(value):
+    if not isinstance(value, str):
+        return value
+    key = value.strip().lower()
+    return DISPLAY_NAME_MAP.get(key, value)
+
+
+def _map_display_names(values):
+    if values is None:
+        return None
+    if isinstance(values, dict):
+        return {key: _display_name(val) for key, val in values.items()}
+    if isinstance(values, (list, tuple, np.ndarray)):
+        return np.array([_display_name(val) for val in values], dtype=object)
+    return _display_name(values)
+
 def load_cfg(path: Path):
     with open(path, "r") as f:
         cfg = yaml.safe_load(f)
@@ -329,6 +350,7 @@ def main():
     label_names = None
     if bundle.meta and bundle.meta.get("dataset_name_to_id"):
         label_names = {v: k for k, v in bundle.meta["dataset_name_to_id"].items()}
+    label_names = _map_display_names(label_names)
 
     dataset_label_per_sample = None
     if getattr(bundle, "dataset_names", None) is not None:
@@ -338,6 +360,7 @@ def main():
             [label_names.get(int(idx), str(idx)) for idx in bundle.dataset_ids],
             dtype=object,
         )
+    dataset_label_per_sample = _map_display_names(dataset_label_per_sample)
 
     dino_size = None
     backbone_name = None

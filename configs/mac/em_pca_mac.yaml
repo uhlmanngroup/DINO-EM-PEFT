@@ -1,9 +1,9 @@
-experiment_id: "2025-01-02_B2_lucchi+droso_dinov2-base_lora-none_pca-umap"
+experiment_id: "2026-01-21_dinov2-base_WITHlora-none_feats-stack2"
 results_root: "/Users/cfuste/Documents/Results/DINO-LoRA"
 task_type: "feats"
 
 data:
-  input_path: "/Users/cfuste/Documents/Results/DINO-LoRA/feats/2025-12-02_A5_lucchi+droso_dinov2-base_lora-none_feats/features.npz"
+  input_path: "/Users/cfuste/Documents/Results/DINO-LoRA/feats/2026-01-21_dinov2-base_WITHlora-none_feats-stack2/features.npz"
 
 pca:
   n_components: 50  # pre-UMAP PCA

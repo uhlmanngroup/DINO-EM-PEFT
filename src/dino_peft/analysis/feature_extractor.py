@@ -15,6 +15,32 @@ from dino_peft.backbones import (
 from dino_peft.datasets.flat_image_folder import FlatImageFolder
 from dino_peft.models.lora import apply_peft
 
+def _count_lora_matches(lora_state: dict, model_state: dict) -> int:
+    return sum(1 for k in lora_state.keys() if k in model_state)
+
+
+def _remap_lora_state(lora_state: dict, model_state: dict) -> tuple[dict, str]:
+    if not lora_state:
+        return lora_state, "empty"
+
+    candidates = []
+    base_matches = _count_lora_matches(lora_state, model_state)
+    candidates.append(("as-is", lora_state, base_matches))
+
+    if any(k.startswith("vit.") for k in lora_state.keys()):
+        stripped = {k[len("vit."):]: v for k, v in lora_state.items()}
+        candidates.append(("strip-vit", stripped, _count_lora_matches(stripped, model_state)))
+
+    if any(k.startswith("vit.") for k in model_state.keys()):
+        prefixed = {
+            (k if k.startswith("vit.") else f"vit.{k}"): v
+            for k, v in lora_state.items()
+        }
+        candidates.append(("add-vit", prefixed, _count_lora_matches(prefixed, model_state)))
+
+    best = max(candidates, key=lambda item: item[2])
+    return best[1], best[0]
+
 @torch.no_grad()
 def extract_features_from_folder(
     data_dir: str | Path,
@@ -87,6 +113,9 @@ def extract_features_from_folder(
             if not lora_state:
                 raise RuntimeError("Checkpoint does not contain backbone_lora weights.")
             model_state = model.model.state_dict()
+            lora_state, remap_strategy = _remap_lora_state(lora_state, model_state)
+            if remap_strategy != "as-is":
+                print(f"[feature_extractor] Remapped LoRA keys ({remap_strategy}).")
             missing = []
             for key, tensor in lora_state.items():
                 if key in model_state:
