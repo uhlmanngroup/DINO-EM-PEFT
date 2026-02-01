@@ -8,7 +8,7 @@ test_img_dir:    "/home/cfuste/data/datasets/DINO-POC/test/images"
 test_mask_dir:   "/home/cfuste/data/datasets/DINO-POC/test/masks"
 
 # results + experiment naming
-experiment_id: "2026-01-10_dinopoc_openclip_vith14_lora-r16_seg"
+experiment_id: "2026-01-26_dinopoc_openclip_vith14_WITHlora-r16_seg"
 results_root: "/home/cfuste/data/DINO-LoRA"
 task_type: "seg"
 

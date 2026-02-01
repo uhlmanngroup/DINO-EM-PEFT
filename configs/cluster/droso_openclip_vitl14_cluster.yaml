@@ -8,7 +8,7 @@ test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
 test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
 
 # results + experiment naming
-experiment_id: "2026-01-15_droso_openclip_vitl14_lora-r16_seg"
+experiment_id: "2026-01-26_droso_openclip_vitl14_NOlora-r16_seg"
 results_root: "/home/cfuste/data/DINO-LoRA/openclip/"
 task_type: "seg"
 
@@ -35,11 +35,11 @@ img_size:
 num_classes: 2
 
 # ---- LoRA ----
-use_lora: true
+use_lora: false
 lora_rank: 16
 lora_alpha: 32
 lora:
-  enabled: true
+  enabled: false
   target_policy: vit_attention_only
   layer_selection: all
   exclude: [head, decoder, seg_head]

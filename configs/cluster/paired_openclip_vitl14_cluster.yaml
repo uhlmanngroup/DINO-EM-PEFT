@@ -8,9 +8,9 @@ test_img_dir:    "/home/cfuste/data/datasets/DINO-POC/test/images"
 test_mask_dir:   "/home/cfuste/data/datasets/DINO-POC/test/masks"
 
 # results + experiment naming
-experiment_id: "2026-01-15_openclip_vitl14_NOlora-r16_seg"
-results_root: "/home/cfuste/data/DINO-LoRA/openclip/seg/"
-task_type: "paired"
+experiment_id: "2026-01-27_openclip_vitl14_WITHlora-r16_seg"
+results_root: "/home/cfuste/data/DINO-LoRA/openclip/"
+task_type: "seg"
 
 # stitched dataset already shares a naming scheme between images/masks
 dataset:
@@ -37,11 +37,11 @@ num_classes: 2
 
 
 # ---- LoRA ----
-use_lora: false
+use_lora: true
 lora_rank: 16
 lora_alpha: 32
 lora:
-  enabled: false
+  enabled: true
   target_policy: vit_attention_only
   layer_selection: all
   exclude: [head, decoder, seg_head]

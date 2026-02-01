@@ -19,7 +19,7 @@ export PYTHONPATH="$PWD/src"
 export TQDM_DISABLE=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
-ROOT=${ROOT:-../../data/DINO-LoRA/seg}
+ROOT=${ROOT:-../../data/DINO-LoRA/openclip/seg}
 SUMMARY_DIR=${SUMMARY_DIR:-}
 EXTRA_ARGS=()
 

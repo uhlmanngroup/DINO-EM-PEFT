@@ -9,7 +9,7 @@ test_mask_dir: "/home/cfuste/data/datasets/DINO-POC/test/masks"
 
 # results + experiment naming
 experiment_id: "ablation_paired_balance_dinov2"
-results_root: "/home/cfuste/data/DINO-LoRA"
+results_root: "/home/cfuste/data/DINO-LoRA/dinov2/"
 task_type: "seg"
 
 # paired dataset (filenames include 'lucchi' or 'droso')
