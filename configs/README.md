@@ -8,3 +8,6 @@ Directory map:
 - `configs/cluster/`: cluster runs and sbatch defaults
 - `configs/mac/`: local Mac runs
 - `configs/environments/`: minimal conda environment YAMLs
+
+Config notes:
+- Set `use_lora: false` + `full_finetune: true` for full fine-tuning (no LoRA).

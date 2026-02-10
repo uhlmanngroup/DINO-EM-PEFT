@@ -384,6 +384,16 @@ def resolve_lora_cfg(cfg: Mapping) -> LoraConfig:
         compatibility_mode=compatibility_mode,
     )
 
+def resolve_full_finetune(cfg: Mapping) -> bool:
+    if not isinstance(cfg, Mapping):
+        return False
+    if "full_finetune" in cfg:
+        return bool(cfg.get("full_finetune"))
+    training_cfg = cfg.get("training")
+    if isinstance(training_cfg, Mapping) and "full_finetune" in training_cfg:
+        return bool(training_cfg.get("full_finetune"))
+    return False
+
 
 def discover_lora_targets(
     model: nn.Module, lora_cfg: LoraConfig
@@ -556,11 +566,18 @@ def apply_peft(
     write_report: bool = True,
 ) -> LoraAudit | None:
     lora_cfg = resolve_lora_cfg(cfg)
+    full_finetune = resolve_full_finetune(cfg)
     backbone_info = backbone_info or {}
     backbone_name = str(backbone_info.get("name", "unknown"))
     backbone_variant = str(backbone_info.get("variant", "unknown"))
     backbone_model = backbone_info.get("model")
     backbone_pretrained = backbone_info.get("pretrained")
+
+    if full_finetune and lora_cfg.enabled:
+        raise ValueError(
+            "full_finetune=true requires LoRA to be disabled. "
+            "Set lora.enabled/use_lora=false to run full fine-tuning."
+        )
 
     if lora_cfg.layer_selection != "all":
         raise ValueError(
@@ -573,8 +590,9 @@ def apply_peft(
         )
 
     if not lora_cfg.enabled:
-        _freeze_module(model)
-        _validate_trainable(model)
+        if not full_finetune:
+            _freeze_module(model)
+            _validate_trainable(model)
         return None
 
     targets, per_block, qkv_equivalence, discovered_blocks = discover_lora_targets(model, lora_cfg)

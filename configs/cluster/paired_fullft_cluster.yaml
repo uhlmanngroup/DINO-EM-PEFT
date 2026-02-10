@@ -1,0 +1,69 @@
+# Environment: cluster (UZH Science) - composed paired dataset
+# Full fine-tuning config (no LoRA).
+
+# ---- I/O ----
+train_img_dir: "/home/cfuste/data/datasets/DINO-POC/train/images"
+train_mask_dir: "/home/cfuste/data/datasets/DINO-POC/train/masks"
+test_img_dir:    "/home/cfuste/data/datasets/DINO-POC/test/images"
+test_mask_dir:   "/home/cfuste/data/datasets/DINO-POC/test/masks"
+
+# results + experiment naming
+experiment_id: "2025-01-01_A2_dinopoc_fullft_seg"
+results_root: "/home/cfuste/data/DINO-LoRA"
+task_type: "seg"
+
+# stitched dataset already shares a naming scheme between images/masks
+dataset:
+  type: paired          # use generic PairedDirsSegDataset
+  params:
+    pair_mode: stem
+    recursive: false
+
+# ---- model / backbone ----
+backbone:
+  name: dinov2
+  variant: base
+  load_backend: torchhub
+  weights: null
+  repo_dir: null
+  preprocess:
+    preset: em
+
+dino_size: base
+img_size:
+  mode: longest_edge
+  target: 1022   # largest <= 1024 while staying multiple of 14
+  patch_multiple: 14
+  rounding: floor
+num_classes: 2
+
+# ---- fine-tuning ----
+use_lora: false
+full_finetune: true
+
+# ---- training ----
+batch_size: 2
+epochs: 80
+patience: 20
+lr: 0.00005
+weight_decay: 0.0001
+num_workers: 4
+device: auto
+amp: false
+val_ratio: 0.1
+split_seed: 42
+
+# ---- loss (CE + Tversky on foreground) ----
+loss: dice      # ce, dice, ce_tversky
+class_weights: [1.0, 15.0]    # bg, fg
+tversky_alpha: 0.7
+tversky_beta: 0.3
+tversky_eps: 1.0e-6
+tversky_weight: 0.6   # lambda: 0.6*Tversky + 0.4*CE
+
+# ---- training safety ----
+clip_grad_norm: 1.0   # global grad clip
+
+# ---- export / viz ----
+binarize: true
+binarize_threshold: 128

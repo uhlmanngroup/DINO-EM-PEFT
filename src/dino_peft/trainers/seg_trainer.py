@@ -18,7 +18,7 @@ from dino_peft.backbones import (
     resolve_backbone_cfg,
     resolve_preprocess_cfg,
 )
-from dino_peft.models.lora import apply_peft, lora_parameters
+from dino_peft.models.lora import apply_peft, lora_parameters, resolve_full_finetune
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
 from dino_peft.utils.paths import setup_run_dir, write_run_info, update_metrics
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
@@ -223,6 +223,7 @@ class SegTrainer:
             base_ch=512,
         ).to(self.device)
 
+        self.full_finetune = resolve_full_finetune(self.cfg)
         # -------- LoRA ----------
         self.lora_names = []
         audit = apply_peft(
@@ -238,15 +239,26 @@ class SegTrainer:
         for p in self.head.parameters():
             p.requires_grad = True
 
+        # -------- full fine-tune ----------
+        if self.full_finetune:
+            for p in self.backbone.model.parameters():
+                p.requires_grad = True
+
         # -------- optim / loss ----------
-        params = list(self.head.parameters()) + list(lora_parameters(self.backbone.model))
+        if self.full_finetune:
+            params = list(self.backbone.model.parameters()) + list(self.head.parameters())
+        elif self.lora_enabled:
+            params = list(self.head.parameters()) + list(lora_parameters(self.backbone.model))
+        else:
+            params = list(self.head.parameters())
         self.trainable_params = params
         self.optimizer = torch.optim.AdamW(params, lr=self.cfg["lr"], weight_decay=self.cfg["weight_decay"])
         print(f"[params] trainable={sum(p.numel() for p in self.trainable_params):,}")
-        print(
-            "[warn] unexpected trainable in backbone:",
-            [n for n, p in self.backbone.model.named_parameters() if p.requires_grad and "lora_" not in n][:15],
-        )
+        if not self.full_finetune:
+            print(
+                "[warn] unexpected trainable in backbone:",
+                [n for n, p in self.backbone.model.named_parameters() if p.requires_grad and "lora_" not in n][:15],
+            )
         self.criterion = build_criterion(self.cfg, device=self.device)
         self.epochs = int(self.cfg["epochs"])
         self.patience = max(1, int(self.cfg.get("patience", 20)))
@@ -314,7 +326,7 @@ class SegTrainer:
         backbone_tag = f"{self.backbone_cfg.get('name')}-{self.backbone_cfg.get('variant')}"
         run_name = (
             f"{backbone_tag}_img{img_tag_str}_"
-            f"{'lora' if getattr(self, 'lora_enabled', False) else 'head'}"
+            f"{'fullft' if self.full_finetune else ('lora' if getattr(self, 'lora_enabled', False) else 'head')}"
         )
         print(f"[train] run_name={run_name}")
 
@@ -325,7 +337,7 @@ class SegTrainer:
         last_train_loss = float("inf")
         last_val_loss = float("inf")
         for epoch in range(1, self.epochs + 1):
-            self.backbone.train(False)
+            self.backbone.train(self.full_finetune or self.lora_enabled)
             self.head.train(True)
 
             running = 0.0
@@ -337,7 +349,7 @@ class SegTrainer:
 
                 self.optimizer.zero_grad(set_to_none=True)
 
-                if self.lora_enabled:
+                if self.full_finetune or self.lora_enabled:
                     out = self.backbone(imgs)
                 else:
                     with torch.no_grad():
@@ -436,6 +448,8 @@ class SegTrainer:
                 "epoch": int(epoch),
                 "val_loss": float(val_loss),
             }
+            if self.full_finetune:
+                ckpt["backbone"] = self.backbone.model.state_dict()
 
             torch.save(ckpt, last_path)
             print(f"[ckpt] wrote {last_path.name}")

@@ -402,20 +402,28 @@ def main():
         base_ch=512,
     ).to(device)
     head.load_state_dict(ckpt["head"])
-    bb_state = bb.model.state_dict()
-    lora_dict = ckpt.get("backbone_lora", {})
-    if audit is None and lora_dict:
-        print("[eval_em_seg][warn] Checkpoint has LoRA weights, but LoRA is disabled in eval config.")
-    if audit is not None and not lora_dict:
-        print("[eval_em_seg][warn] LoRA enabled but checkpoint missing backbone_lora weights.")
-    matched = 0
-    for k, v in lora_dict.items():
-        if k in bb_state:
-            bb_state[k] = v
-            matched += 1
-    if lora_dict and matched == 0:
-        print("[eval_em_seg][warn] LoRA weights did not match any backbone keys; check backbone variant/config.")
-    bb.model.load_state_dict(bb_state, strict=False)
+    backbone_full = ckpt.get("backbone")
+    if backbone_full:
+        result = bb.model.load_state_dict(backbone_full, strict=False)
+        if result.missing_keys:
+            print(f"[eval_em_seg][warn] Missing backbone keys: {result.missing_keys[:10]}")
+        if result.unexpected_keys:
+            print(f"[eval_em_seg][warn] Unexpected backbone keys: {result.unexpected_keys[:10]}")
+    else:
+        bb_state = bb.model.state_dict()
+        lora_dict = ckpt.get("backbone_lora", {})
+        if audit is None and lora_dict:
+            print("[eval_em_seg][warn] Checkpoint has LoRA weights, but LoRA is disabled in eval config.")
+        if audit is not None and not lora_dict:
+            print("[eval_em_seg][warn] LoRA enabled but checkpoint missing backbone_lora weights.")
+        matched = 0
+        for k, v in lora_dict.items():
+            if k in bb_state:
+                bb_state[k] = v
+                matched += 1
+        if lora_dict and matched == 0:
+            print("[eval_em_seg][warn] LoRA weights did not match any backbone keys; check backbone variant/config.")
+        bb.model.load_state_dict(bb_state, strict=False)
 
     bb.eval(); head.eval()
     preview_n = int(eval_cfg.get("eval_preview_n", 4))

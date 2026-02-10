@@ -50,10 +50,16 @@ For a full list of entrypoints and their purpose, see `scripts/README.md`.
 - Feature grids: `sbatch slurm/feat_analysis_paired.sbatch`
 - Summaries: `sbatch slurm/summarize_seg_results.sbatch`
 - Param counts: `sbatch slurm/param_counts.sbatch`
+- Full fine-tuning (paired): `sbatch slurm/single_paired_fullft.sbatch`
 
 **Backbone Selection**
 - Backbone choice is config-driven via a `backbone` block. See `configs/backbones/` for examples.
 - Legacy configs that only specify `dino_size` still work and default to DINOv2.
+
+**Fine-Tuning Mode**
+- LoRA: set `use_lora: true` (default in many configs).
+- Full fine-tuning: set `use_lora: false` and `full_finetune: true`.
+- Head-only (frozen backbone): set `use_lora: false` and omit `full_finetune`.
 
 **DINOv3 Weights**
 
