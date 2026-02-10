@@ -56,6 +56,7 @@ For a full list of entrypoints and their purpose, see `scripts/README.md`.
 - Legacy configs that only specify `dino_size` still work and default to DINOv2.
 
 **DINOv3 Weights**
+
 Access to DINOv3 weights requires an approved request. Once you receive the link, download the checkpoint and set `backbone.weights` and `backbone.repo_dir` in your config. The paths below are placeholders:
 
 ```bash
@@ -73,9 +74,11 @@ backbone:
 Also update `img_size.patch_multiple` to 16 when using DINOv3 so resizing snaps to the correct stride.
 
 **OpenCLIP Weights And Caching**
+
 Use `backbone.pretrained` to point to an OpenCLIP tag (auto-downloads if cached access is available) or set `backbone.weights` to a local checkpoint path for offline clusters. Cache locations can be steered via `HF_HOME` or `XDG_CACHE_HOME`.
 
 **Results Layout**
+
 All runs share a common results layout driven by the YAML config. Each config must define:
 
 - `experiment_id`: unique run name (e.g. `2025-11-20_A1_lucchi+droso_dinov2-base_lora-none_seg`)
@@ -96,6 +99,7 @@ Outputs land at:
 `metrics.json` is updated by training/eval/analysis scripts via `update_metrics()`.
 
 **Repository Structure**
+
 ```
 shift-peft/
   configs/
@@ -128,6 +132,7 @@ shift-peft/
 ```
 
 **Datasets**
+
 Lucchi, A., Smith, K., Achanta, R., Knott, G., & Fua, P. (2011). Supervoxel-based segmentation of mitochondria in em image stacks with learned shape features. IEEE transactions on medical imaging, 31(2), 474-486. Download [here](https://casser.io/connectomics).
 
 Casser, V., Kang, K., Pfister, H., & Haehn, D. (2020, September). Fast mitochondria detection for connectomics. In Medical Imaging with Deep Learning (pp. 111-120). PMLR. Download [here](https://github.com/unidesigner/groundtruth-drosophila-vnc/tree/master).
@@ -146,9 +151,11 @@ python scripts/data/compose_em_datasets.py
 ```
 
 **Cite**
+
 If you use this work, cite the arXiv preprint [arXiv:2602.08505](https://arxiv.org/abs/2602.08505). The BibTeX entry is available on the arXiv page.
 
 **Acknowledgements**
+
 This project stands on the shoulders of excellent open-source work and research. We’re grateful to the authors and maintainers of the following projects and papers:
 
 - **DINOv2 (Meta AI / Facebook Research)**
