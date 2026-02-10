@@ -1,0 +1,8 @@
+# Example backbone block for OpenCLIP (open-clip-torch).
+backbone:
+  name: openclip
+  model: "ViT-L-14"
+  pretrained: "laion2b_s32b_b79k"
+  weights: ""
+  preprocess:
+    preset: em

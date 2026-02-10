@@ -21,7 +21,7 @@ export PYTHONPATH="$PWD/src"
 export TQDM_DISABLE=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
-CFG_PATH="${CFG_PATH:-config/domain_analysis.yaml}"
+CFG_PATH="${CFG_PATH:-configs/mac/domain_analysis.yaml}"
 EXTRA_ARGS=()
 
 if [ ! -f "$CFG_PATH" ]; then

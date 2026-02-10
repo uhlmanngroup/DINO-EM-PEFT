@@ -6,6 +6,8 @@ from .image_size import compute_resized_hw, parse_img_size_config
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
+OPENCLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
+OPENCLIP_STD = [0.26862954, 0.26130258, 0.27577711]
 
 def em_seg_transforms(img_size=(308,308)):
     return T.Compose([
@@ -54,5 +56,19 @@ def em_dino_unsup_transforms(img_size: int | dict | tuple = 518):
             _ResizeLongestEdge(resize_spec),
             T.ToTensor(),
             T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+def openclip_native_transforms(img_size: int | dict | tuple = 518):
+    """
+    Eval-time transform matching OpenCLIP normalization while keeping the repo's resize policy.
+    """
+    resize_spec = parse_img_size_config(img_size)
+    return T.Compose(
+        [
+            _ResizeLongestEdge(resize_spec),
+            T.ToTensor(),
+            T.Normalize(mean=OPENCLIP_MEAN, std=OPENCLIP_STD),
         ]
     )

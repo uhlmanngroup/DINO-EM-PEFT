@@ -1,0 +1,9 @@
+# Example backbone block for DINOv2 (defaults to torch.hub).
+backbone:
+  name: dinov2
+  variant: small   # small/base/large/giant
+  load_backend: torchhub
+  weights: null
+  repo_dir: null
+  preprocess:
+    preset: em

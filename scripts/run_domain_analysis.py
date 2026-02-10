@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Compute FID + linear separability metrics between two feature domains."""
+"""Compute FID + linear separability metrics between two feature domains.
+
+Example (local):
+    python scripts/run_domain_analysis.py --cfg configs/mac/domain_analysis.yaml
+
+Example (cluster):
+    sbatch slurm/domain_analysis.sbatch
+"""
 
 from __future__ import annotations
 
@@ -20,12 +27,19 @@ from dino_peft.analysis.domain_metrics import (
 )
 from dino_peft.utils.paths import setup_run_dir, update_metrics, write_run_info
 
-DEFAULT_CFG = Path(__file__).parent.parent / "config" / "domain_analysis_example.yaml"
+DEFAULT_CFG = Path(__file__).parent.parent / "configs" / "mac" / "domain_analysis.yaml"
 
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Domain gap analysis based on DINO features.")
-    ap.add_argument("--cfg", type=str, default=str(DEFAULT_CFG), help="Path to YAML config.")
+    ap.add_argument(
+        "--cfg",
+        "--config",
+        dest="cfg",
+        type=str,
+        default=str(DEFAULT_CFG),
+        help="Path to YAML config.",
+    )
     return ap.parse_args()
 
 

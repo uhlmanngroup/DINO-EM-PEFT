@@ -1,0 +1,73 @@
+# Environment: cluster (UZH Science) — Droso-only segmentation run (DINOv3)
+
+# ---- I/O ----
+train_img_dir: "/home/cfuste/data/datasets/Droso/Train_In"
+train_mask_dir: "/home/cfuste/data/datasets/Droso/Train_Out"
+test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
+test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
+
+# results + experiment naming (stored under /data to persist on the cluster)
+experiment_id: "2026-01-10_A2_droso-only_dinov3_seg"
+results_root: "/home/cfuste/data/DINO-LoRA/dinov3/seg/"
+task_type: "droso-lora"
+
+# dataset pairing (Drosophila images share numeric stems with their masks)
+dataset:
+  type: droso
+  params:
+    recursive: true
+
+# ---- model / backbone ----
+backbone:
+  name: dinov3
+  variant: vits16
+  load_backend: torchhub
+  repo_dir: /home/cfuste/GitHub/dinov3
+  weights: /home/cfuste/data/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  preprocess:
+    preset: em
+dino_size: vits16
+img_size:
+  mode: longest_edge
+  target: 1022   # largest <= 1024 while staying multiple of 16
+  patch_multiple: 16
+  rounding: floor
+num_classes: 2
+
+# ---- LoRA ----
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora:
+  enabled: true
+  target_policy: vit_attention_only
+  layer_selection: all
+  exclude: [head, decoder, seg_head]
+  compatibility_mode: true
+
+# ---- training ----
+batch_size: 1
+epochs: 500
+patience: 20
+lr: 0.00005
+weight_decay: 0.0001
+num_workers: 4
+device: auto
+amp: false
+val_ratio: 0.1
+split_seed: 42
+
+# ---- loss (CE + Tversky on foreground) ----
+loss: dice
+class_weights: [1.0, 15.0]
+tversky_alpha: 0.7
+tversky_beta: 0.3
+tversky_eps: 1.0e-6
+tversky_weight: 0.6
+
+# ---- training safety ----
+clip_grad_norm: 1.0
+
+# ---- export / viz ----
+binarize: true
+binarize_threshold: 128

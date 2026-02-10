@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
+"""Evaluate EM segmentation checkpoints.
+
+Example (local):
+    python scripts/eval_em_seg.py --cfg configs/mac/lucchi_dinov2_lora_mac.yaml
+
+Example (cluster):
+    sbatch slurm/single_lucchi_dinov2.sbatch configs/cluster/lucchi_dinov2_cluster.yaml
+"""
+
+import argparse
+import csv
+from copy import deepcopy
 from pathlib import Path
-import argparse, yaml, torch, numpy as np
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import numpy as np
-import csv
-import os
-import mlflow
-from mlflow import MlflowClient
-import torch.nn.functional as F
 
 from dino_peft.datasets.paired_dirs_seg import PairedDirsSegDataset
 from dino_peft.datasets.lucchi_seg import LucchiSegDataset
@@ -16,14 +26,11 @@ from dino_peft.datasets.droso_seg import DrosoSegDataset
 from dino_peft.utils.transforms import em_seg_transforms, denorm_imagenet
 from dino_peft.utils.viz import colorize_mask
 from dino_peft.utils.plots import save_triptych_grid
-from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
+from dino_peft.backbones import build_backbone, patch_tokens_to_grid, resolve_backbone_cfg
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
-from dino_peft.models.lora import inject_lora
+from dino_peft.models.lora import apply_peft
 from dino_peft.utils.paths import setup_run_dir, update_metrics
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
-from copy import deepcopy
-
-
 def pad_collate(batch):
     imgs, masks, names = zip(*batch)
     max_h = max(img.shape[-2] for img in imgs)
@@ -97,8 +104,10 @@ def build_dataset_from_cfg(cfg, split: str, transform):
 def eval_loop(
     backbone, head, loader, device, num_classes,
     out_dir: Path | None = None, ckpt_tag: str = "model",
-    preview_n: int = 4,              # kept for compatibility (unused when saving all)
-    save_all_triptychs: bool = True 
+    preview_n: int = 4,
+    preview_seed: int | None = None,
+    preview_mode: str = "random",
+    preview_cols: int = 4,
 ):
     inter = np.zeros(num_classes, dtype=np.float64)
     union = np.zeros(num_classes, dtype=np.float64)
@@ -118,15 +127,29 @@ def eval_loop(
     fg_pr_pix = 0.0
 
     prev_dir = None
+    sample_indices = None
     if out_dir is not None:
         prev_dir = Path(out_dir) / "figs" / "eval_previews"
         prev_dir.mkdir(parents=True, exist_ok=True)
+        preview_mode = (preview_mode or "random").lower()
+        if preview_mode == "random":
+            total = len(getattr(loader, "dataset", []))
+            if total and preview_n > 0:
+                import random
 
+                rng = random.Random(preview_seed) if preview_seed is not None else random
+                k = min(int(preview_n), int(total))
+                sample_indices = set(rng.sample(range(total), k))
+
+    preview_samples = []
+    preview_group_idx = 0
+    global_idx = 0
     for b, (imgs, masks, names) in enumerate(tqdm(loader, desc="eval")):
         imgs  = imgs.to(device, non_blocking=True)
         masks = masks.to(device, non_blocking=True)
 
-        feats = backbone(imgs)
+        out = backbone(imgs)
+        feats = patch_tokens_to_grid(out)
         logits = head(feats, masks.shape[-2:])
         pred = logits.argmax(1)
 
@@ -155,51 +178,73 @@ def eval_loop(
         fg_gt_pix += mk_fg.sum().item()
         fg_pr_pix += pk_fg.sum().item()
     
-        # ---------------- Triptych saving (grouped) ----------------
+        # ---------------- Preview triptychs ----------------
         if prev_dir is not None:
-            # de-normalize once per batch
-            imgs_vis = denorm_imagenet(imgs.detach().cpu()).clamp(0, 1)   # (B,C,H?,W?)
-            gts_cpu  = masks.detach().cpu()                               # (B,H,W)
-            preds_cp = logits.detach().argmax(1).cpu()                    # (B,H,W)
+            imgs_vis = denorm_imagenet(imgs.detach().cpu()).clamp(0, 1)
+            gts_cpu = masks.detach().cpu()
+            preds_cp = logits.detach().argmax(1).cpu()
 
             H, W = gts_cpu.shape[-2:]
             if imgs_vis.shape[-2:] != (H, W):
-                imgs_vis = F.interpolate(imgs_vis, size=(H, W), mode="bilinear", align_corners=False)
+                imgs_vis = F.interpolate(
+                    imgs_vis, size=(H, W), mode="bilinear", align_corners=False
+                )
 
-            pred_rgb = colorize_mask(preds_cp, num_classes)               # (B,3,H,W)
-            gt_rgb   = colorize_mask(gts_cpu,   num_classes)
+            pred_rgb = colorize_mask(preds_cp, num_classes)
+            gt_rgb = colorize_mask(gts_cpu, num_classes)
 
-            # ==== NEW: group into grids of N columns ====
-            group_cols = 4                                  # <- change if you want
-            if "trip_buf" not in locals():
-                trip_buf = []                               # persistent across batches
-                trip_count = 0
-
-            B = imgs_vis.size(0)
-            for j in range(B):
-                trip_buf.append({
-                    "image": imgs_vis[j],
-                    "gt":    gt_rgb[j],
-                    "pred":  pred_rgb[j],
-                    "name":  str(names[j]),
-                })
-                # when buffer reaches N, flush to disk
-                if len(trip_buf) == group_cols:
-                    out_png = Path(prev_dir) / f"eval_triptych_{ckpt_tag}_g{trip_count:04d}.png"
-                    save_triptych_grid(
-                        trip_buf,
-                        out_path=str(out_png),
-                        title=f"Evaluation — {ckpt_tag} — group {trip_count}"
+            if preview_mode == "all":
+                for j in range(imgs_vis.size(0)):
+                    preview_samples.append(
+                        {
+                            "image": imgs_vis[j],
+                            "gt": gt_rgb[j],
+                            "pred": pred_rgb[j],
+                            "name": str(names[j]),
+                        }
                     )
-                    trip_buf = []
-                    trip_count += 1
-    if prev_dir is not None and "trip_buf" in locals() and trip_buf:
-        out_png = Path(prev_dir) / f"eval_triptych_{ckpt_tag}_g{trip_count:04d}.png"
-        save_triptych_grid(
-            trip_buf,
-            out_path=str(out_png),
-            title=f"Evaluation — {ckpt_tag} — group {trip_count}"
-        )
+                while len(preview_samples) >= preview_cols:
+                    group = preview_samples[:preview_cols]
+                    preview_samples = preview_samples[preview_cols:]
+                    out_png = Path(prev_dir) / f"eval_triptych_{ckpt_tag}_g{preview_group_idx:04d}.png"
+                    save_triptych_grid(
+                        group,
+                        out_path=str(out_png),
+                        title=f"Evaluation — {ckpt_tag} — group {preview_group_idx}",
+                    )
+                    preview_group_idx += 1
+            elif sample_indices:
+                batch_size = imgs.size(0)
+                capture = [
+                    j for j in range(batch_size)
+                    if (global_idx + j) in sample_indices
+                ]
+                for j in capture:
+                    preview_samples.append(
+                        {
+                            "image": imgs_vis[j],
+                            "gt": gt_rgb[j],
+                            "pred": pred_rgb[j],
+                            "name": str(names[j]),
+                        }
+                    )
+        global_idx += imgs.size(0)
+
+    if prev_dir is not None and preview_samples:
+        if preview_mode == "all":
+            out_png = Path(prev_dir) / f"eval_triptych_{ckpt_tag}_g{preview_group_idx:04d}.png"
+            save_triptych_grid(
+                preview_samples,
+                out_path=str(out_png),
+                title=f"Evaluation — {ckpt_tag} — group {preview_group_idx}",
+            )
+        else:
+            out_png = Path(prev_dir) / f"eval_triptych_{ckpt_tag}_random.png"
+            save_triptych_grid(
+                preview_samples,
+                out_path=str(out_png),
+                title=f"Evaluation — {ckpt_tag} — {len(preview_samples)} samples",
+            )
 
     eps = 1e-7
     iou  = inter / (union + eps)
@@ -281,7 +326,13 @@ def best_checkpoint(run_dir) -> Path:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", required=True, help="Training YAML or saved config_used.yaml / config_runtime.yaml")
+    ap.add_argument(
+        "--cfg",
+        "--config",
+        dest="cfg",
+        required=True,
+        help="Training YAML or saved config_used.yaml / config_runtime.yaml",
+    )
     ap.add_argument("--ckpt", default="", help="Optional checkpoint path; if empty, auto-pick latest in run directory")
     ap.add_argument("--out_csv", default="", help="Optional metrics output; if empty, write run_dir/metrics_test.csv")
     args = ap.parse_args()
@@ -301,13 +352,39 @@ def main():
 
     # auto-pick checkpoint if not provided
     ckpt_path = Path(args.ckpt).expanduser() if args.ckpt else best_checkpoint(run_dir)
+    if args.ckpt:
+        run_dir = ckpt_path.parent.parent
+        (run_dir / "figs" / "eval_previews").mkdir(parents=True, exist_ok=True)
     out_csv   = Path(args.out_csv).expanduser() if args.out_csv else (run_dir / "metrics_test.csv")
+
+    print(f"[eval_em_seg] run_dir={run_dir}")
+    print(f"[eval_em_seg] ckpt_path={ckpt_path}")
 
     device = _pick_device()
 
-    # dataset (test split from cfg)
+    # load checkpoint (LoRA + head)
+    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt_cfg = ckpt.get("cfg", {}) or {}
+    eval_cfg = ckpt_cfg if ckpt_cfg else cfg
+    if ckpt_cfg:
+        print("[eval_em_seg] using cfg from checkpoint for model/data settings.")
+    lora_cfg_source = ckpt_cfg if ckpt_cfg else cfg
+
+    # model
+    backbone_cfg = resolve_backbone_cfg(eval_cfg)
+    bb = build_backbone(backbone_cfg, device=device)
+    audit = apply_peft(
+        bb.model,
+        lora_cfg_source,
+        run_dir=run_dir,
+        backbone_info=backbone_cfg,
+        write_report=False,
+    )
+    bb.to(device)
+
+    # dataset (test split from eval cfg)
     t = em_seg_transforms()
-    ds = build_dataset_from_cfg(cfg, split="test", transform=t)
+    ds = build_dataset_from_cfg(eval_cfg, split="test", transform=t)
 
     loader = DataLoader(
         ds,
@@ -318,35 +395,53 @@ def main():
         collate_fn=pad_collate,
     )
 
-    # model
-    bb = DINOv2FeatureExtractor(size=cfg["dino_size"], device=str(device))
-    use_lora = cfg.get("use_lora", True)
-    if use_lora:
-        targets = cfg.get("lora_targets", ["attn.qkv", "attn.proj"])
-        r = int(cfg.get("lora_rank", 8))
-        alpha = int(cfg.get("lora_alpha", 16))
-        lora_names = inject_lora(bb.vit, target_substrings=targets, r=r, alpha=alpha)
-
-    bb.to(device)
-    head = SegHeadDeconv(in_ch=bb.embed_dim, num_classes=cfg["num_classes"], n_ups=4, base_ch=512).to(device)
-
-    # load checkpoint (LoRA + head)
-    ckpt = torch.load(ckpt_path, map_location=device)
+    head = SegHeadDeconv(
+        in_ch=bb.embed_dim,
+        num_classes=eval_cfg["num_classes"],
+        n_ups=4,
+        base_ch=512,
+    ).to(device)
     head.load_state_dict(ckpt["head"])
-    bb_state = bb.state_dict()
+    bb_state = bb.model.state_dict()
     lora_dict = ckpt.get("backbone_lora", {})
+    if audit is None and lora_dict:
+        print("[eval_em_seg][warn] Checkpoint has LoRA weights, but LoRA is disabled in eval config.")
+    if audit is not None and not lora_dict:
+        print("[eval_em_seg][warn] LoRA enabled but checkpoint missing backbone_lora weights.")
     matched = 0
     for k, v in lora_dict.items():
         if k in bb_state:
             bb_state[k] = v
             matched += 1
-    bb.load_state_dict(bb_state, strict=False)
+    if lora_dict and matched == 0:
+        print("[eval_em_seg][warn] LoRA weights did not match any backbone keys; check backbone variant/config.")
+    bb.model.load_state_dict(bb_state, strict=False)
 
     bb.eval(); head.eval()
-    # --- compute metrics ---
-    iou, dice, iou_f, dice_f = eval_loop(bb, head, loader, device, cfg["num_classes"], out_dir=run_dir)
+    preview_n = int(eval_cfg.get("eval_preview_n", 4))
+    preview_seed = eval_cfg.get("eval_preview_seed")
+    if preview_seed is not None:
+        preview_seed = int(preview_seed)
+    preview_mode = str(eval_cfg.get("eval_preview_mode", "random")).lower()
+    preview_cols = int(eval_cfg.get("eval_preview_cols", 4))
+    if preview_cols < 1:
+        preview_cols = 4
 
-    # --- write CSV BEFORE logging to MLflow ---
+    # --- compute metrics ---
+    iou, dice, iou_f, dice_f = eval_loop(
+        bb,
+        head,
+        loader,
+        device,
+        eval_cfg["num_classes"],
+        out_dir=run_dir,
+        preview_n=preview_n,
+        preview_seed=preview_seed,
+        preview_mode=preview_mode,
+        preview_cols=preview_cols,
+    )
+
+    # --- write CSV before updating metrics.json ---
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with out_csv.open("w", newline="") as f:
         w = csv.writer(f)
@@ -364,34 +459,9 @@ def main():
             "mean_dice": float(dice.mean()),
             "foreground_iou": float(iou_f),
             "foreground_dice": float(dice_f),
-            "num_classes": int(cfg["num_classes"]),
+            "num_classes": int(eval_cfg["num_classes"]),
         },
     )
-
-    # --- single MLflow run ---
-    mlflow.set_tracking_uri(f"file:{(Path.cwd()/'mlruns').as_posix()}")
-    mlflow.set_experiment(os.environ.get("MLFLOW_EXPERIMENT_NAME", "default"))
-
-    with mlflow.start_run(run_name="eval") as run:
-        # force hydration and print where it’s going
-        mlflow.log_param("phase", "eval")
-        mlflow.log_metric("canary/step0", 0.0, step=0)
-        print("[mlflow:eval] cwd=", Path.cwd().as_posix(),
-              "tracking_uri=", mlflow.get_tracking_uri(),
-              "run_id=", run.info.run_id,
-              "artifact_uri=", mlflow.get_artifact_uri())
-
-        # metrics
-        mlflow.log_metric("test/iou_f",  float(iou_f))
-        mlflow.log_metric("test/Dice_fg", float(dice_f))
-
-        # artifacts
-        mlflow.log_artifact(str(out_csv), artifact_path="eval")
-        prev_dir = run_dir / "figs" / "eval_previews"
-        if prev_dir.exists():
-            mlflow.log_artifacts(str(prev_dir), artifact_path="eval_previews")
-
-
 
 if __name__ == "__main__":
     main()

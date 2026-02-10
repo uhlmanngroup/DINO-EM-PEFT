@@ -20,15 +20,16 @@ export PYTHONUNBUFFERED=1
 export PYTHONPATH="$PWD/src"
 export TQDM_DISABLE=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
-export MLFLOW_TRACKING_URI="file:/scratch/$USER/mlruns_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID:-0}"
 
-BASE_CFG="config/cluster/droso_cluster.yaml"
+BASE_CFG="configs/cluster/droso_cluster.yaml"
 DINO_SIZES=${DINO_SIZES:-"small base large giant"}
+BACKBONE_NAME=${BACKBONE_NAME:-dinov2}
 EPOCHS=${EPOCHS:-}
 BATCH_DEFAULT=${BATCH_DEFAULT:-}
 NUM_WORKERS=${NUM_WORKERS:-}
 AMP=${AMP:-}
 RUN_TAG=${RUN_TAG:-drosogrid${SLURM_JOB_ID:-manual}}
+SEED=${SEED:-}
 REPEATS=${REPEATS:-5}
 
 read -r -a SIZE_LIST <<< "$DINO_SIZES"
@@ -57,12 +58,18 @@ archive_slurm_log() {
 }
 
 prepare_cfg() {
-  local base_cfg="$1" size="$2" epochs="$3" batch="$4" workers="$5" amp="$6" tag="$7"
-  "$PY" - "$base_cfg" "$size" "$epochs" "$batch" "$workers" "$amp" "$tag" <<'PY'
+  local base_cfg="$1" size="$2" epochs="$3" batch="$4" workers="$5" amp="$6" tag="$7" backbone_name="$8" seed="$9"
+  "$PY" - "$base_cfg" "$size" "$epochs" "$batch" "$workers" "$amp" "$tag" "$backbone_name" "$seed" <<'PY'
 import sys, yaml, tempfile, pathlib
-base, size, epochs, batch, workers, amp, tag = sys.argv[1:]
+base, size, epochs, batch, workers, amp, tag, backbone_name, seed = sys.argv[1:]
 cfg = yaml.safe_load(open(base))
 cfg["dino_size"] = size
+backbone = cfg.get("backbone") or {}
+backbone["name"] = backbone_name or backbone.get("name", "dinov2")
+backbone["variant"] = size
+cfg["backbone"] = backbone
+if seed:
+    cfg["seed"] = int(seed)
 if epochs:
     cfg["epochs"] = max(1, int(epochs))
 if batch:
@@ -80,8 +87,6 @@ root = pathlib.Path(cfg.get("results_root", default_out.parent)).expanduser()
 cfg["results_root"] = str(root)
 out_dir = root / task_type / cfg["experiment_id"]
 cfg["out_dir"] = str(out_dir)
-ml_name = cfg.get("mlflow_experiment_name", "droso-grid")
-cfg["mlflow_experiment_name"] = f"{ml_name}_{tag}"
 tmp = tempfile.NamedTemporaryFile(prefix=f"{tag}_", suffix=".yaml", delete=False)
 with open(tmp.name, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
@@ -111,7 +116,7 @@ run_config() {
   local size_tag="${RUN_TAG}_rep${rep_idx}_s$((size_idx + 1))_${size_clean}"
   local batch_val
   batch_val="$(get_batch_for_size "$size_clean")"
-  mapfile -t prep < <(prepare_cfg "$BASE_CFG" "$size_clean" "$EPOCHS" "$batch_val" "$NUM_WORKERS" "$AMP" "$size_tag")
+  mapfile -t prep < <(prepare_cfg "$BASE_CFG" "$size_clean" "$EPOCHS" "$batch_val" "$NUM_WORKERS" "$AMP" "$size_tag" "$BACKBONE_NAME" "$SEED")
   runtime_cfg="${prep[0]}"
   run_dir="${prep[1]}"
   echo "[grid size=${size_clean} rep=${rep_idx}] batch=$batch_val cfg=$runtime_cfg"

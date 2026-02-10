@@ -1,13 +1,9 @@
-from pathlib import Path
 import yaml
-import os
 import torch
-import mlflow
 import torch.nn as nn
 import monai
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from mlflow.tracking import MlflowClient 
 from copy import deepcopy
 
 from dino_peft.datasets.lucchi_seg import LucchiSegDataset
@@ -16,8 +12,13 @@ from dino_peft.datasets.paired_dirs_seg import PairedDirsSegDataset
 from dino_peft.utils.transforms import em_seg_transforms, denorm_imagenet
 from dino_peft.utils.viz import colorize_mask
 from dino_peft.utils.plots import save_triptych_grid
-from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
-from dino_peft.models.lora import inject_lora, lora_parameters
+from dino_peft.backbones import (
+    build_backbone,
+    patch_tokens_to_grid,
+    resolve_backbone_cfg,
+    resolve_preprocess_cfg,
+)
+from dino_peft.models.lora import apply_peft, lora_parameters
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
 from dino_peft.utils.paths import setup_run_dir, write_run_info, update_metrics
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
@@ -108,13 +109,19 @@ class SegTrainer:
         self.ckpt_dir = self.out_dir / "ckpts"
         self.fig_dir = self.out_dir / "figs"
         self.previews_dir = self.fig_dir / "previews"
+        backbone_cfg = resolve_backbone_cfg(self.cfg)
+        self.backbone_cfg = backbone_cfg
+        preprocess_cfg = resolve_preprocess_cfg(self.cfg, default_img_size=self.img_size_cfg)
+        self.preprocess_cfg = preprocess_cfg
         write_run_info(
             self.out_dir,
             {
                 "task_type": task_type,
                 "device": str(self.device),
                 "img_size": self.cfg.get("img_size"),
-                "dino_size": self.cfg.get("dino_size"),
+                "backbone_name": backbone_cfg.get("name"),
+                "backbone_variant": backbone_cfg.get("variant"),
+                "preprocess_preset": preprocess_cfg.get("preset"),
             },
         )
 
@@ -207,35 +214,39 @@ class SegTrainer:
         )
 
         # -------- model ----------
-        self.backbone = DINOv2FeatureExtractor(size=self.cfg["dino_size"], device=str(self.device))
+        self.backbone = build_backbone(self.backbone_cfg, device=self.device)
         in_ch = self.backbone.embed_dim
-        self.head = SegHeadDeconv(in_ch=in_ch, num_classes=self.cfg["num_classes"], n_ups=4, base_ch=512).to(self.device)
+        self.head = SegHeadDeconv(
+            in_ch=in_ch,
+            num_classes=self.cfg["num_classes"],
+            n_ups=4,
+            base_ch=512,
+        ).to(self.device)
 
         # -------- LoRA ----------
         self.lora_names = []
-        if self.cfg.get("use_lora", True):
-            self.lora_names = inject_lora(
-                self.backbone.vit,
-                target_substrings=self.cfg.get("lora_targets", ["attn.qkv", "attn.proj"]),
-                r=int(self.cfg.get("lora_rank", 8)),
-                alpha=int(self.cfg.get("lora_alpha", 16)),
-            )
+        audit = apply_peft(
+            self.backbone.model,
+            self.cfg,
+            run_dir=self.out_dir,
+            backbone_info=self.backbone_cfg,
+        )
+        self.lora_enabled = audit is not None
+        if audit is not None:
+            self.lora_names = audit.targets
         self.backbone.to(self.device)  # ensure LoRA modules on device
-
-        # freeze base, enable LoRA + head
-        for p in self.backbone.parameters():
-            p.requires_grad = False
-        for p in lora_parameters(self.backbone):
-            p.requires_grad = True
         for p in self.head.parameters():
             p.requires_grad = True
 
         # -------- optim / loss ----------
-        params = list(self.head.parameters()) + list(lora_parameters(self.backbone))
+        params = list(self.head.parameters()) + list(lora_parameters(self.backbone.model))
         self.trainable_params = params
         self.optimizer = torch.optim.AdamW(params, lr=self.cfg["lr"], weight_decay=self.cfg["weight_decay"])
         print(f"[params] trainable={sum(p.numel() for p in self.trainable_params):,}")
-        print("[warn] unexpected trainable in backbone:", [n for n,p in self.backbone.named_parameters() if p.requires_grad and "lora_" not in n][:15])
+        print(
+            "[warn] unexpected trainable in backbone:",
+            [n for n, p in self.backbone.model.named_parameters() if p.requires_grad and "lora_" not in n][:15],
+        )
         self.criterion = build_criterion(self.cfg, device=self.device)
         self.epochs = int(self.cfg["epochs"])
         self.patience = max(1, int(self.cfg.get("patience", 20)))
@@ -283,20 +294,6 @@ class SegTrainer:
         masks_tensor = torch.stack(padded_masks)
         return imgs_tensor, masks_tensor, list(names)
 
-    # ---------- MLflow helpers ----------
-    def _resolve_mlflow_tracking(self):
-        # Prefer env vars; fallback to defaults
-        uri = os.environ.get("MLFLOW_TRACKING_URI")
-        if not uri:
-            # Make a relative file store next to your project root by default
-            # (Use an absolute path if you prefer)
-            uri = f"file:{(Path.cwd() / 'mlruns').as_posix()}"
-        mlflow.set_tracking_uri(uri)
-
-        exp_name = os.environ.get("MLFLOW_EXPERIMENT_NAME", "default")
-        mlflow.set_experiment(exp_name)
-        return uri, exp_name
-
     def train(self):
         best_val = float('inf')
         best_epoch = 0
@@ -304,8 +301,6 @@ class SegTrainer:
         avg_train = float('inf')
         best_path = self.ckpt_dir / "best_model.pt"
         last_path = self.ckpt_dir / "last_model.pt"
-
-        tracking_uri, exp_name = self._resolve_mlflow_tracking()
 
         img_tag = self.cfg.get("img_size")
         if isinstance(img_tag, (list, tuple)) and img_tag:
@@ -316,210 +311,148 @@ class SegTrainer:
             img_tag_str = f"{mode}-{tgt}" if tgt else mode
         else:
             img_tag_str = str(img_tag)
-        run_name = f"{self.cfg.get('dino_size','?')}_img{img_tag_str}_{'lora' if self.cfg.get('use_lora',True) else 'head'}"
+        backbone_tag = f"{self.backbone_cfg.get('name')}-{self.backbone_cfg.get('variant')}"
+        run_name = (
+            f"{backbone_tag}_img{img_tag_str}_"
+            f"{'lora' if getattr(self, 'lora_enabled', False) else 'head'}"
+        )
+        print(f"[train] run_name={run_name}")
 
-        # === Everything MLflow happens here ===
-        mlflow.set_experiment(self.cfg.get("mlflow_experiment_name", "default")) 
-        with mlflow.start_run(run_name=run_name) as run:
-            r = mlflow.active_run()
-            assert r is not None, "MLflow run did not start"
+        # --------- training loop ----------
+        epochs_since_improve = 0
+        epochs_completed = 0
+        best_train_loss = float("inf")
+        last_train_loss = float("inf")
+        last_val_loss = float("inf")
+        for epoch in range(1, self.epochs + 1):
+            self.backbone.train(False)
+            self.head.train(True)
 
-            # small canary to force hydration
-            mlflow.log_param("run_canary", "ok")
-            mlflow.log_metric("canary/step0", 0.0, step=0)
+            running = 0.0
+            # TRAIN
+            for imgs, masks, _ in self.train_loader:
+                masks = masks.long()
+                imgs = imgs.to(self.device, non_blocking=True)
+                masks = masks.to(self.device, non_blocking=True)
 
-            # Log key params once
-            mlflow.log_param("seed",      int(self.seed))
-            mlflow.log_param("dino_size", self.cfg.get("dino_size"))
-            mlflow.log_param("img_size",  str(self.cfg.get("img_size")))
-            mlflow.log_param("use_lora",  bool(self.cfg.get("use_lora", True)))
-            mlflow.log_param("lora_rank", int(self.cfg.get("lora_rank", 0)))
-            mlflow.log_param("lora_alpha",int(self.cfg.get("lora_alpha", 0)))
-            mlflow.log_param("batch_size",int(self.cfg.get("batch_size")))
-            mlflow.log_param("epochs",    int(self.cfg.get("epochs")))
-            mlflow.log_param("patience",  int(self.patience))
-            mlflow.log_param("lr",        float(self.cfg.get("lr")))
-            mlflow.log_param("weight_decay", float(self.cfg.get("weight_decay")))
-            mlflow.log_param("loss", self.cfg.get("loss","ce"))
-            mlflow.log_param("class_weights", str(self.cfg.get("class_weights")))
-            mlflow.log_param("tversky", f"{self.cfg.get('tversky_alpha',0.7)},{self.cfg.get('tversky_beta',0.3)}")
+                self.optimizer.zero_grad(set_to_none=True)
 
-            # Write run info to disk so you can click back later
-            client = MlflowClient()
-            art_uri = client.get_run(r.info.run_id).info.artifact_uri
-            exp = mlflow.get_experiment(r.info.experiment_id)
-            print(f"[mlflow] tracking_uri={mlflow.get_tracking_uri()}  "
-                  f"experiment={exp.name}  run_id={r.info.run_id}  artifact_uri={art_uri}")
+                if self.lora_enabled:
+                    out = self.backbone(imgs)
+                else:
+                    with torch.no_grad():
+                        out = self.backbone(imgs)
+                feats = patch_tokens_to_grid(out)
+                logits = self.head(feats, out_hw=masks.shape[-2:])
 
-            with open(self.out_dir / "mlflow_run_id.txt", "w") as f:
-                f.write(r.info.run_id + "\n")
-                f.write(f"tracking_uri={mlflow.get_tracking_uri()}\n")
-                f.write(f"experiment_id={r.info.experiment_id}\n")
-                f.write(f"artifact_uri={art_uri}\n")
+                loss = self.criterion(logits, masks.unsqueeze(1)) # From (B, H, W) to (B, K, H, W)  as expected by Monai DiceLoss
+                
+                # backward
+                loss.backward()
+                if self.clip_grad_norm and self.clip_grad_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(self.trainable_params, max_norm=self.clip_grad_norm)
+                self.optimizer.step()
+                running += loss.item()
+            avg_train = running / max(1, len(self.train_loader))
 
-            tmp_note = self.out_dir / "run_started.txt"
-            tmp_note.write_text("trainer started\n")
-            mlflow.log_artifact(str(tmp_note), artifact_path="notes")
+            # VAL
+            self.head.eval()
+            val_loss = 0.0
+            fg_gt_total = fg_pred_total = 0
+            bg_gt_total = bg_pred_total = 0
 
-            # --------- training loop ----------
-            epochs_since_improve = 0
-            epochs_completed = 0
-            best_train_loss = float("inf")
-            last_train_loss = float("inf")
-            last_val_loss = float("inf")
-            for epoch in range(1, self.epochs + 1):
-                self.backbone.train(False)
-                self.head.train(True)
-
-                running = 0.0
-                # TRAIN
-                for imgs, masks, _ in self.train_loader:
+            with torch.no_grad():
+                for i, (imags, masks, names) in enumerate(self.val_loader):
                     masks = masks.long()
-                    imgs = imgs.to(self.device, non_blocking=True)
+                    imgs = imags.to(self.device, non_blocking=True)
                     masks = masks.to(self.device, non_blocking=True)
 
-                    self.optimizer.zero_grad(set_to_none=True)
-
-                    feats = self.backbone(imgs)               # (B, C, H', W')
-                    logits = self.head(feats, out_hw=masks.shape[-2:])  #
-
+                    out = self.backbone(imgs)
+                    feats = patch_tokens_to_grid(out)
+                    logits = self.head(feats, out_hw=masks.shape[-2:])
                     loss = self.criterion(logits, masks.unsqueeze(1)) # From (B, H, W) to (B, K, H, W)  as expected by Monai DiceLoss
-                    
-                    # backward
-                    loss.backward()
-                    if self.clip_grad_norm and self.clip_grad_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(self.trainable_params, max_norm=self.clip_grad_norm)
-                    self.optimizer.step()
-                    running += loss.item()
-                avg_train = running / max(1, len(self.train_loader))
+                    val_loss += float(loss)
 
-                # VAL
-                self.head.eval()
-                val_loss = 0.0
-                fg_gt_total = fg_pred_total = 0
-                bg_gt_total = bg_pred_total = 0
+                    pred = logits.argmax(1)
+                    fg_gt_total  += (masks == 1).sum().item()
+                    fg_pred_total+= (pred  == 1).sum().item()
+                    bg_gt_total  += (masks == 0).sum().item()
+                    bg_pred_total+= (pred  == 0).sum().item()
 
-                with torch.no_grad():
-                    for i, (imags, masks, names) in enumerate(self.val_loader):
-                        masks = masks.long()
-                        imgs = imags.to(self.device, non_blocking=True)
-                        masks = masks.to(self.device, non_blocking=True)
+                    if i == 0:
+                        # ---- Save a labeled triptych (first batch only) ----
+                        grid_dir = self.previews_dir
+                        grid_dir.mkdir(parents=True, exist_ok=True)
 
-                        feats = self.backbone(imgs)
-                        logits = self.head(feats, out_hw=masks.shape[-2:])
-                        loss = self.criterion(logits, masks.unsqueeze(1)) # From (B, H, W) to (B, K, H, W)  as expected by Monai DiceLoss
-                        val_loss += float(loss)
+                        # Show up to K samples
+                        K = min(4, imgs.size(0))
 
-                        pred = logits.argmax(1)
-                        fg_gt_total  += (masks == 1).sum().item()
-                        fg_pred_total+= (pred  == 1).sum().item()
-                        bg_gt_total  += (masks == 0).sum().item()
-                        bg_pred_total+= (pred  == 0).sum().item()
+                        # (B, H, W) int class indices
+                        preds_cpu = logits[:K].detach().argmax(1).cpu()
+                        gts_cpu   = masks[:K].detach().cpu()
 
-                        if i == 0:
-                            # ---- Save a labeled triptych (first batch only) ----
-                            grid_dir = self.previews_dir
-                            grid_dir.mkdir(parents=True, exist_ok=True)
+                        # de-normalize images for visualization
+                        imgs_vis = denorm_imagenet(imags[:K].detach().cpu()).clamp(0, 1)  # use original imags from loader
 
-                            # Show up to K samples
-                            K = min(4, imgs.size(0))
+                        # resize imgs to match mask size if needed
+                        H, W = gts_cpu.shape[-2:]
+                        if imgs_vis.shape[-2:] != (H, W):
+                            imgs_vis = F.interpolate(imgs_vis, size=(H, W), mode="bilinear", align_corners=False)
 
-                            # (B, H, W) int class indices
-                            preds_cpu = logits[:K].detach().argmax(1).cpu()
-                            gts_cpu   = masks[:K].detach().cpu()
+                        # colorize masks (RGB tensors, [0,1])
+                        pred_rgb = colorize_mask(preds_cpu, self.cfg["num_classes"])
+                        gt_rgb   = colorize_mask(gts_cpu,   self.cfg["num_classes"])
 
-                            # de-normalize images for visualization
-                            imgs_vis = denorm_imagenet(imags[:K].detach().cpu()).clamp(0, 1)  # use original imags from loader
+                        # column titles from dataset names
+                        col_names = [str(n) for n in list(names)[:K]]
 
-                            # resize imgs to match mask size if needed
-                            H, W = gts_cpu.shape[-2:]
-                            if imgs_vis.shape[-2:] != (H, W):
-                                imgs_vis = F.interpolate(imgs_vis, size=(H, W), mode="bilinear", align_corners=False)
+                        # pack samples
+                        samples = []
+                        for j in range(K):
+                            samples.append({
+                                "image": imgs_vis[j],  # CxHxW tensor is fine
+                                "gt":    gt_rgb[j],    # already RGB
+                                "pred":  pred_rgb[j],  # already RGB
+                                "name":  col_names[j],
+                            })
 
-                            # colorize masks (RGB tensors, [0,1])
-                            pred_rgb = colorize_mask(preds_cpu, self.cfg["num_classes"])
-                            gt_rgb   = colorize_mask(gts_cpu,   self.cfg["num_classes"])
+                        save_triptych_grid(
+                            samples,
+                            out_path=str(grid_dir / f"ep{epoch:03d}_triptych.png"),
+                            title=f"Epoch {epoch} — Validation Triptychs"
+                        )
 
-                            # column titles from dataset names
-                            col_names = [str(n) for n in list(names)[:K]]
+            val_loss /= max(1, len(self.val_loader))
+            last_train_loss = float(avg_train)
+            last_val_loss = float(val_loss)
+            epochs_completed = epoch
+            print(f"[epoch {epoch}/{self.epochs}] train_loss={avg_train:.4f}  val_loss={val_loss:.4f}")
 
-                            # pack samples
-                            samples = []
-                            for j in range(K):
-                                samples.append({
-                                    "image": imgs_vis[j],  # CxHxW tensor is fine
-                                    "gt":    gt_rgb[j],    # already RGB
-                                    "pred":  pred_rgb[j],  # already RGB
-                                    "name":  col_names[j],
-                                })
+            # Checkpoints
+            ckpt = {
+                "head": self.head.state_dict(),
+                "backbone_lora": {k: v for k, v in self.backbone.model.state_dict().items() if "lora_" in k},
+                "cfg": self.cfg,
+                "epoch": int(epoch),
+                "val_loss": float(val_loss),
+            }
 
-                            save_triptych_grid(
-                                samples,
-                                out_path=str(grid_dir / f"ep{epoch:03d}_triptych.png"),
-                                title=f"Epoch {epoch} — Validation Triptychs"
-                            )
+            torch.save(ckpt, last_path)
+            print(f"[ckpt] wrote {last_path.name}")
 
-                val_loss /= max(1, len(self.val_loader))
-                last_train_loss = float(avg_train)
-                last_val_loss = float(val_loss)
-                epochs_completed = epoch
-                print(f"[epoch {epoch}/{self.epochs}] train_loss={avg_train:.4f}  val_loss={val_loss:.4f}")
+            if val_loss < best_val:
+                best_val = float(val_loss)
+                best_epoch = epoch
+                best_train_loss = float(avg_train)
+                epochs_since_improve = 0
+                torch.save(ckpt, best_path)
+                print(f"[ckpt] NEW BEST -> {best_path.name} (val_loss={best_val:.4f})")
+            else:
+                epochs_since_improve += 1
 
-                # MLflow scalars
-                try:
-                    mlflow.log_metric("train/loss", float(avg_train), step=epoch)
-                    mlflow.log_metric("val/loss",   float(val_loss),  step=epoch)
-                    mlflow.log_metric("val/fg_gt_px",   int(fg_gt_total),   step=epoch)
-                    mlflow.log_metric("val/fg_pred_px", int(fg_pred_total), step=epoch)
-                    mlflow.log_metric("val/bg_gt_px",   int(bg_gt_total),   step=epoch)
-                    mlflow.log_metric("val/bg_pred_px", int(bg_pred_total), step=epoch)
-                except Exception as e:
-                    print("[mlflow] logging FAILED:", e)
-
-                # Checkpoints
-                ckpt = {
-                    "head": self.head.state_dict(),
-                    "backbone_lora": {k: v for k, v in self.backbone.state_dict().items() if "lora_" in k},
-                    "cfg": self.cfg,
-                    "epoch": int(epoch),
-                    "val_loss": float(val_loss),
-                }
-
-                torch.save(ckpt, last_path)
-                print(f"[ckpt] wrote {last_path.name}")
-
-                if val_loss < best_val:
-                    best_val = float(val_loss)
-                    best_epoch = epoch
-                    best_train_loss = float(avg_train)
-                    epochs_since_improve = 0
-                    torch.save(ckpt, best_path)
-                    print(f"[ckpt] NEW BEST -> {best_path.name} (val_loss={best_val:.4f})")
-                    mlflow.log_metric("val/best_loss", best_val, step=epoch)
-                else:
-                    epochs_since_improve += 1
-
-                # upload previews periodically
-                try:
-                    if epoch % 5 == 0:
-                        mlflow.log_artifacts(str(self.previews_dir), artifact_path="previews")
-                except Exception as e:
-                    print("[mlflow] preview artifact upload skipped:", e)
-
-                if epochs_since_improve >= self.patience:
-                    print(f"[early_stop] no val improvement for {self.patience} epochs — stopping at epoch {epoch}")
-                    try:
-                        mlflow.log_metric("train/early_stop_epoch", epoch, step=epoch)
-                    except Exception as e:
-                        print("[mlflow] early stop metric logging skipped:", e)
-                    break
-
-            # end-of-run artifacts
-            try:
-                mlflow.log_artifacts(str(self.out_dir), artifact_path="run_artifacts")
-            except Exception as e:
-                print("[mlflow] final artifact upload skipped:", e)
-        # context manager will end the run for us
+            if epochs_since_improve >= self.patience:
+                print(f"[early_stop] no val improvement for {self.patience} epochs — stopping at epoch {epoch}")
+                break
         update_metrics(
             self.out_dir,
             "train",

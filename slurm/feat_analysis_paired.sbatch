@@ -19,8 +19,9 @@ export PYTHONPATH="$PWD/src"
 export TQDM_DISABLE=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
-BASE_CFG="${BASE_CFG:-config/paired_feat_analysis_cluster.yaml}"
+BASE_CFG="${BASE_CFG:-configs/cluster/paired_feat_analysis_cluster.yaml}"
 DINO_SIZES=${DINO_SIZES:-"small base large giant"}
+BACKBONE_NAME=${BACKBONE_NAME:-dinov2}
 BATCH_DEFAULT=${BATCH_DEFAULT:-${BATCH_SIZE:-}}
 NUM_WORKERS=${NUM_WORKERS:-}
 DEVICE=${DEVICE:-cpu}
@@ -82,13 +83,17 @@ get_batch_for_size() {
 }
 
 prepare_cfg() {
-  local base_cfg="$1" size="$2" tag="$3" batch="$4" workers="$5" device="$6" data_dir="$7" task_type="$8" checkpoint="$9"
-  "$PY" - "$base_cfg" "$size" "$tag" "$batch" "$workers" "$device" "$data_dir" "$task_type" "$checkpoint" <<'PY'
+  local base_cfg="$1" size="$2" tag="$3" batch="$4" workers="$5" device="$6" data_dir="$7" task_type="$8" checkpoint="$9" backbone_name="${10}"
+  "$PY" - "$base_cfg" "$size" "$tag" "$batch" "$workers" "$device" "$data_dir" "$task_type" "$checkpoint" "$backbone_name" <<'PY'
 import sys, yaml, tempfile, pathlib
-base, size, tag, batch, workers, device, data_dir, task_type, checkpoint = sys.argv[1:]
+base, size, tag, batch, workers, device, data_dir, task_type, checkpoint, backbone_name = sys.argv[1:]
 cfg = yaml.safe_load(open(base))
 model = cfg.setdefault("model", {})
 model["dino_size"] = size
+backbone = model.get("backbone") or {}
+backbone["name"] = backbone_name or backbone.get("name", "dinov2")
+backbone["variant"] = size
+model["backbone"] = backbone
 if checkpoint:
     model["checkpoint"] = checkpoint
 runtime = cfg.setdefault("runtime", {})
@@ -136,7 +141,7 @@ run_config() {
     echo "[error] checkpoint not found for size=$size_clean -> $checkpoint_path" >&2
     exit 2
   fi
-  mapfile -t prep < <(prepare_cfg "$BASE_CFG" "$size_clean" "$tag" "$batch_override" "$NUM_WORKERS" "$DEVICE" "$DATA_DIR_OVERRIDE" "$TASK_TYPE_OVERRIDE" "$checkpoint_path")
+  mapfile -t prep < <(prepare_cfg "$BASE_CFG" "$size_clean" "$tag" "$batch_override" "$NUM_WORKERS" "$DEVICE" "$DATA_DIR_OVERRIDE" "$TASK_TYPE_OVERRIDE" "$checkpoint_path" "$BACKBONE_NAME")
   local runtime_cfg="${prep[0]}"
   local run_dir="${prep[1]}"
   local features_path="${prep[2]}"

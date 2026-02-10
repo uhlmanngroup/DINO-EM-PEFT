@@ -1,0 +1,69 @@
+# Environment: Mac / local dev — Drosophila-only dataset
+
+# Run scripts/compose_droso_dataset.py first to stage droso-only/{train,test}
+# folders, then point the dirs below to that output root.
+train_img_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/Droso/Train_In"
+train_mask_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/Droso/Train_Out"
+test_img_dir:   "/Users/cfuste/Documents/Data/ElectronMicroscopy/Droso/Test_In"
+test_mask_dir:  "/Users/cfuste/Documents/Data/ElectronMicroscopy/Droso/Test_Out"
+
+# results + experiment naming
+experiment_id: "A2_droso-only_dinov2-small_lora-r8_seg"
+results_root: "/Users/cfuste/Documents/Results/DINO-LoRA"
+task_type: "seg"
+
+# ---- model / backbone ----
+backbone:
+  name: dinov2
+  variant: small
+  load_backend: torchhub
+  weights: null
+  repo_dir: null
+  preprocess:
+    preset: em
+dino_size: small
+img_size:
+  mode: longest_edge
+  target: 1022
+  patch_multiple: 14
+  rounding: floor
+num_classes: 2
+
+dataset:
+  type: droso
+  params:
+    recursive: true
+
+
+# ---- LoRA ----
+use_lora: false
+lora_targets: [attn.qkv, attn.proj]
+lora_rank: 8
+lora_alpha: 32
+
+# ---- training ----
+batch_size: 1
+epochs: 1
+patience: 20
+lr: 0.00005
+weight_decay: 0.0001
+num_workers: 8
+device: auto
+amp: true
+val_ratio: 0.1
+split_seed: 42
+
+# ---- loss (CE + Tversky on foreground) ----
+loss: dice      # ce, dice, ce_tversky 
+class_weights: [1.0, 15.0]    # bg, fg
+tversky_alpha: 0.7
+tversky_beta: 0.3
+tversky_eps: 1.0e-6
+tversky_weight: 0.6
+
+# ---- training safety ----
+clip_grad_norm: 1.0
+
+# ---- export / viz ----
+binarize: true
+binarize_threshold: 128

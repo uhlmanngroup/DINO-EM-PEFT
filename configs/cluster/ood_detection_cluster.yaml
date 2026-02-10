@@ -1,0 +1,58 @@
+# Cluster config for Mahalanobis OOD detection (Lucchi ID vs Droso target).
+# Submit via: python scripts/ood_detection.py --cfg configs/cluster/ood_detection_cluster.yaml
+
+experiment_id: "2025-02-10_B1_lucchi-vs-droso_dinov2-base_lora-r16_ood"
+results_root: "/home/cfuste/data/DINO-LoRA"
+task_type: "ood-detection"
+
+data:
+  id:
+    path: "/home/cfuste/data/datasets/Lucchi++/Train_In"
+    recursive: true
+    file_glob: ["*.png", "*.tif"]
+    sequence_regex: '(?i)lucchi[_-]*(\d+)'
+  target:
+    path: "/home/cfuste/data/datasets/Droso/Test_In"
+    recursive: true
+    file_glob: ["*.tif"]
+    sequence_regex: '(?i)droso[_-]*(\d+)'
+    # file_regex: ".*sequence42.*"   # optional regex filter example
+
+model:
+  backbone:
+    name: dinov2
+    variant: base
+    load_backend: torchhub
+    weights: null
+    repo_dir: null
+    preprocess:
+      preset: em
+  dino_size: "base"
+  checkpoint: "/home/cfuste/data/DINO-LoRA/seg/2025-01-01_A1_lucchi-only_dinov2-base_lora-r16_seg/ckpts/best_model.pt"
+  pooling: "mean"
+  l2_normalize: true
+
+runtime:
+  batch_size: 32
+  num_workers: 8
+  seed: 0
+  img_size:
+    mode: longest_edge
+    target: 1022
+    patch_multiple: 14
+    rounding: floor
+  device: "cuda"
+  spatial_preprocess:
+    mode: "native"            # native keeps source aspect; switch as needed
+    multiple_of: 14
+
+ood:
+  cache_embeddings: true
+  covariance:
+    method: "ledoit-wolf"
+    reg_eps: 0.00005
+  threshold:
+    quantile: 0.97
+  topk: 32
+  outlier_grid_topk: 16
+  outlier_grid_cols: 4

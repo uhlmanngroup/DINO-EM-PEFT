@@ -1,0 +1,70 @@
+# Environment: cluster (UZH Science) — Drosophila-only segmentation run
+
+# Run scripts/compose_droso_dataset.py on the cluster (or rsync the staged
+# droso-only directory) and point these dirs to that output.
+train_img_dir: "/home/cfuste/data/datasets/Droso/Train_In"
+train_mask_dir: "/home/cfuste/data/datasets/Droso/Train_Out"
+test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
+test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
+
+# results + experiment naming (stored under /data to persist on the cluster)
+experiment_id: "2025-01-01_A2_droso-only_dinov2-base_lora-r16_seg"
+results_root: "/home/cfuste/data/DINO-LoRA/seg/droso-nolora"
+task_type: "seg"
+
+# dataset pairing (drosophila images share numeric stems with their masks)
+dataset:
+  type: droso
+  params:
+    recursive: true
+
+# ---- model / backbone ----
+backbone:
+  name: dinov2
+  variant: small
+  load_backend: torchhub
+  weights: null
+  repo_dir: null
+  preprocess:
+    preset: em
+dino_size: small
+img_size:
+  mode: longest_edge
+  target: 1022
+  patch_multiple: 14
+  rounding: floor
+num_classes: 2
+
+
+# ---- LoRA ----
+use_lora: true
+lora_targets: [attn.qkv, attn.proj]
+lora_rank: 16
+lora_alpha: 32
+
+# ---- training ----
+batch_size: 1
+epochs: 1
+patience: 20
+lr: 0.00005
+weight_decay: 0.0001
+num_workers: 0
+device: auto
+amp: false
+val_ratio: 0.1
+split_seed: 42
+
+# ---- loss (CE + Tversky on foreground) ----
+loss: dice
+class_weights: [1.0, 15.0]
+tversky_alpha: 0.7
+tversky_beta: 0.3
+tversky_eps: 1.0e-6
+tversky_weight: 0.6
+
+# ---- training safety ----
+clip_grad_norm: 1.0
+
+# ---- export / viz ----
+binarize: true
+binarize_threshold: 128

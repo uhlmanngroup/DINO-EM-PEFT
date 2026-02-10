@@ -1,0 +1,73 @@
+# Environment: Mac / local paired Lucchi+Droso dataset
+
+# Paired dataset (Lucchi <-> Droso) already pre-composed
+train_img_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/train/images"
+train_mask_dir: "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/train/masks"
+test_img_dir:   "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/images"
+test_mask_dir:  "/Users/cfuste/Documents/Data/ElectronMicroscopy/composed-dinopeft/test/masks"
+
+# results + experiment naming (edit before each run)
+experiment_id: "2026-01-10_paired_openclip_vith14_lora-r8_seg"
+results_root: "/Users/cfuste/Documents/Results/DINO-LoRA"
+task_type: "seg"
+
+# ---- model / backbone ----
+backbone:
+  name: openclip
+  model: "ViT-H-14"
+  pretrained: "laion2b_s32b_b79k"
+  weights: ""
+  preprocess:
+    preset: em
+dino_size: "ViT-H-14"
+img_size:
+  mode: longest_edge
+  target: 1022   # largest <= 1024 that stays multiple of 14
+  patch_multiple: 14
+  rounding: floor
+num_classes: 2
+
+dataset:
+  type: paired
+  params:
+    pair_mode: "stem"
+    recursive: false
+
+
+# ---- LoRA / head ----
+use_lora: false
+lora_rank: 8
+lora_alpha: 32
+lora:
+  enabled: false
+  target_policy: vit_attention_only
+  layer_selection: all
+  exclude: [head, decoder, seg_head]
+  compatibility_mode: true
+
+# ---- training ----
+batch_size: 1
+epochs: 2
+patience: 5
+lr: 0.00005
+weight_decay: 0.0001
+num_workers: 4
+device: auto
+amp: false
+val_ratio: 0.1
+split_seed: 42
+
+# ---- loss (Dice) ----
+loss: dice
+class_weights: [1.0, 15.0]
+tversky_alpha: 0.7
+tversky_beta: 0.3
+tversky_eps: 1.0e-6
+tversky_weight: 0.6
+
+# ---- training safety ----
+clip_grad_norm: 1.0
+
+# ---- export / viz ----
+binarize: true
+binarize_threshold: 128

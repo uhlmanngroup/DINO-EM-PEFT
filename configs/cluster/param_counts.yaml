@@ -1,0 +1,60 @@
+# Parameter-counting config for scripts/utils/param_count_table.py.
+# Fill in DINOv3/OpenCLIP weight paths as needed for your cluster.
+
+device: cpu
+num_classes: 2
+
+seg_head:
+  n_ups: 4
+  base_ch: 512
+
+lora:
+  enabled: true
+  target_policy: vit_attention_only
+  layer_selection: all
+  exclude: [head, decoder, seg_head]
+  rank: 16
+  alpha: 32
+  dropout: 0.0
+  compatibility_mode: true
+
+# Output CSV path (relative to repo root if not absolute).
+output_csv: /home/cfuste/data/DINO-LoRA/summary/param_counts.csv
+
+backbones:
+  # DINOv2 sizes
+  - name: dinov2
+    variant: small
+  - name: dinov2
+    variant: base
+  - name: dinov2
+    variant: large
+  - name: dinov2
+    variant: giant
+
+  # DINOv3 sizes (weights required)
+  - name: dinov3
+    variant: vits16
+    load_backend: torchhub
+    repo_dir: /home/cfuste/GitHub/dinov3
+    weights: /home/cfuste/data/models/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  - name: dinov3
+    variant: vitb16
+    load_backend: torchhub
+    repo_dir: /home/cfuste/GitHub/dinov3
+    weights: /home/cfuste/data/models/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+  - name: dinov3
+    variant: vitl16
+    load_backend: torchhub
+    repo_dir: /home/cfuste/GitHub/dinov3
+    weights: /home/cfuste/data/models/dinov3/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+
+  # OpenCLIP sizes (vision tower only)
+  - name: openclip
+    model: "ViT-L-14"
+    pretrained: "laion2b_s32b_b82k"
+    weights: ""
+  - name: openclip
+    model: "ViT-H-14"
+    pretrained: "laion2b_s32b_b79k"
+    weights: ""

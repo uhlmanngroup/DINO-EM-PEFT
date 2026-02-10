@@ -1,0 +1,65 @@
+# OOD detection between Lucchi (ID) and Droso (target) on the Mac.
+# Update the dataset + checkpoint paths before running:
+#   python scripts/ood_detection.py --cfg configs/mac/ood_detection_mac.yaml
+
+# Cropping configuration. 
+# native: use the original image size
+# crop_match_id: when id is lucchi and target is droso, crop both images to the size of the lucchi image with the same id
+# crop_common_square: when id is droso and target is lucchi, crop both images to the size of the largest square that fits into both images
+
+
+experiment_id: "2025-12-16_native_lucchi-vs-stack2droso_dinov2-base_lora_ood"
+results_root: "/Users/cfuste/Documents/Results/DINO-LoRA"
+task_type: "ood-detection"
+
+data:
+  id:
+    path: "/Users/cfuste/Documents/Data/ElectronMicroscopy/Lucchi++/Train_In"
+    recursive: true
+    file_glob: ["*.png", "*.tif"]
+    sequence_regex: '(?i)lucchi[_-]*(\d+)'
+  target:
+    path: "/Users/cfuste/Documents/Data/ElectronMicroscopy/groundtruth-drosophila-vnc-master/stack2/raw"
+    recursive: true
+    file_glob: ["*.png", "*.tif"]
+    sequence_regex: '(?i)droso[_-]*(\d+)'
+    # file_list: "/path/to/target_list.txt"   # optional filter (one path per line)
+
+model:
+  backbone:
+    name: dinov2
+    variant: base
+    load_backend: torchhub
+    weights: null
+    repo_dir: null
+    preprocess:
+      preset: em
+  dino_size: "base"
+  checkpoint: "/Users/cfuste/Documents/Results/DINO-LoRA/seg/cluster-checkpoints/lucchi-lora/lucchi_lora_base_best_model.pt"
+  pooling: "mean"
+  l2_normalize: true
+
+runtime:
+  batch_size: 2
+  num_workers: 0
+  seed: 0
+  img_size:
+    mode: longest_edge
+    target: 1022
+    patch_multiple: 14
+    rounding: floor
+  device: "auto"
+  spatial_preprocess:
+    mode: "native"            # options: native | crop_match_id | crop_common_square
+    multiple_of: 14           # optional; snap crops to patch multiple
+
+ood:
+  cache_embeddings: true
+  covariance:
+    method: "ledoit-wolf"    # "oas" or "empirical" also supported
+    reg_eps: 0.0001
+  threshold:
+    quantile: 0.95
+  topk: 24
+  outlier_grid_topk: 12
+  outlier_grid_cols: 4

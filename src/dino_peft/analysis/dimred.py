@@ -25,6 +25,8 @@ def load_feature_npz(path: Path | str) -> FeatureBundle:
         image_paths = data.get("image_paths")
         dataset_name_to_id = data.get("dataset_name_to_id")
         dino_size = data.get("dino_size")
+        backbone_name = data.get("backbone_name")
+        backbone_variant = data.get("backbone_variant")
         
         if dino_size is not None:
             try:
@@ -50,6 +52,21 @@ def load_feature_npz(path: Path | str) -> FeatureBundle:
                 )
             }
 
+        def _to_scalar(value):
+            if value is None:
+                return None
+            try:
+                value = value.tolist()
+            except Exception:
+                return value
+            if isinstance(value, (list, tuple)) and value:
+                return value[0]
+            return value
+
+        dino_size = _to_scalar(dino_size)
+        backbone_name = _to_scalar(backbone_name)
+        backbone_variant = _to_scalar(backbone_variant)
+
         return FeatureBundle(
             features=features,
             dataset_ids=dataset_ids,
@@ -60,6 +77,8 @@ def load_feature_npz(path: Path | str) -> FeatureBundle:
                 "raw_keys": list(data.keys()),
                 "source": str(path),
                 "dino_size": dino_size,
+                "backbone_name": backbone_name,
+                "backbone_variant": backbone_variant,
             },
         )
 

@@ -19,10 +19,11 @@ export PYTHONUNBUFFERED=1
 export PYTHONPATH="$PWD/src"
 export TQDM_DISABLE=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
-export MLFLOW_TRACKING_URI="file:/scratch/$USER/mlruns_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID:-0}"
 
-CFG_PATH=${CFG_PATH:-config/lucchi_cluster.yaml}
+CFG_PATH=${CFG_PATH:-configs/cluster/lucchi_dinov2_cluster.yaml}
 DINO_SIZE=${DINO_SIZE:-base}
+BACKBONE_NAME=${BACKBONE_NAME:-dinov2}
+BACKBONE_VARIANT=${BACKBONE_VARIANT:-$DINO_SIZE}
 EPOCHS=${EPOCHS:-}
 BATCH_SIZE=${BATCH_SIZE:-}
 NUM_WORKERS=${NUM_WORKERS:-}
@@ -47,12 +48,16 @@ archive_slurm_log() {
 }
 
 prepare_cfg() {
-  local base_cfg="$1" size="$2" epochs="$3" batch="$4" workers="$5" amp="$6" tag="$7"
-  "$PY" - "$base_cfg" "$size" "$epochs" "$batch" "$workers" "$amp" "$tag" <<'PY'
+  local base_cfg="$1" size="$2" epochs="$3" batch="$4" workers="$5" amp="$6" tag="$7" backbone_name="$8"
+  "$PY" - "$base_cfg" "$size" "$epochs" "$batch" "$workers" "$amp" "$tag" "$backbone_name" <<'PY'
 import sys, yaml, tempfile, pathlib
-base, size, epochs, batch, workers, amp, tag = sys.argv[1:]
+base, size, epochs, batch, workers, amp, tag, backbone_name = sys.argv[1:]
 cfg = yaml.safe_load(open(base))
 cfg["dino_size"] = size
+backbone = cfg.get("backbone") or {}
+backbone["name"] = backbone_name or backbone.get("name", "dinov2")
+backbone["variant"] = size
+cfg["backbone"] = backbone
 if epochs:
     cfg["epochs"] = max(1, int(epochs))
 if batch:
@@ -70,8 +75,6 @@ root = pathlib.Path(cfg.get("results_root", default_out.parent)).expanduser()
 cfg["results_root"] = str(root)
 out_dir = root / task_type / cfg["experiment_id"]
 cfg["out_dir"] = str(out_dir)
-ml_name = cfg.get("mlflow_experiment_name", "dino-test")
-cfg["mlflow_experiment_name"] = f"{ml_name}_{tag}"
 tmp = tempfile.NamedTemporaryFile(prefix=f"{tag}_", suffix=".yaml", delete=False)
 with open(tmp.name, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
@@ -80,7 +83,7 @@ print(cfg["out_dir"])
 PY
 }
 
-mapfile -t prep < <(prepare_cfg "$CFG_PATH" "$DINO_SIZE" "$EPOCHS" "$BATCH_SIZE" "$NUM_WORKERS" "$AMP" "$RUN_TAG")
+mapfile -t prep < <(prepare_cfg "$CFG_PATH" "$BACKBONE_VARIANT" "$EPOCHS" "$BATCH_SIZE" "$NUM_WORKERS" "$AMP" "$RUN_TAG" "$BACKBONE_NAME")
 RUNTIME_CFG="${prep[0]}"
 RUN_DIR="${prep[1]}"
 

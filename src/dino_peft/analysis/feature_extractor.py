@@ -1,15 +1,45 @@
 # src/dino_peft/analysis/feature_extractor.py
-# Python file for extracting features from images using DINOv2 backbone model.
+# Python file for extracting features from images using DINO backbones.
 
 import torch
 import torch.nn.functional as F
 import numpy as np
 from pathlib import Path
 
-from dino_peft.utils.transforms import em_dino_unsup_transforms
+from dino_peft.backbones import (
+    build_backbone,
+    build_preprocess_transform,
+    resolve_backbone_cfg,
+    resolve_preprocess_cfg,
+)
 from dino_peft.datasets.flat_image_folder import FlatImageFolder
-from dino_peft.models.backbone_dinov2 import DINOv2FeatureExtractor
-from dino_peft.models.lora import inject_lora
+from dino_peft.models.lora import apply_peft
+
+def _count_lora_matches(lora_state: dict, model_state: dict) -> int:
+    return sum(1 for k in lora_state.keys() if k in model_state)
+
+
+def _remap_lora_state(lora_state: dict, model_state: dict) -> tuple[dict, str]:
+    if not lora_state:
+        return lora_state, "empty"
+
+    candidates = []
+    base_matches = _count_lora_matches(lora_state, model_state)
+    candidates.append(("as-is", lora_state, base_matches))
+
+    if any(k.startswith("vit.") for k in lora_state.keys()):
+        stripped = {k[len("vit."):]: v for k, v in lora_state.items()}
+        candidates.append(("strip-vit", stripped, _count_lora_matches(stripped, model_state)))
+
+    if any(k.startswith("vit.") for k in model_state.keys()):
+        prefixed = {
+            (k if k.startswith("vit.") else f"vit.{k}"): v
+            for k, v in lora_state.items()
+        }
+        candidates.append(("add-vit", prefixed, _count_lora_matches(prefixed, model_state)))
+
+    best = max(candidates, key=lambda item: item[2])
+    return best[1], best[0]
 
 @torch.no_grad()
 def extract_features_from_folder(
@@ -20,9 +50,10 @@ def extract_features_from_folder(
     num_workers: int = 4,
     device: str = "cuda",
     checkpoint_path: str | Path | None = None,
+    backbone_cfg: dict | None = None,
 ):
     """
-    Run DINOv2 feature extractor on all images in a folder and return .npz file with features.
+    Run the configured DINO backbone on all images in a folder and return .npz features.
 
     Assumptions:
     - Images are already in the size/formad used for EM segmentation.
@@ -30,7 +61,7 @@ def extract_features_from_folder(
 
     Args:
         data_dir: path to folder with images.
-        dino_size: which DINOv2 model size to use ("base", "large", etc).
+        dino_size: legacy DINOv2 size (e.g., "base"); ignored if backbone_cfg provided.
         batch_size: dataloader batch size.
         num_workers: dataloader num_workers.
         device: device to run model on.
@@ -49,32 +80,42 @@ def extract_features_from_folder(
     device_obj = device if isinstance(device, torch.device) else torch.device(device)
     device_type = device_obj.type
 
-    # Build model 
-    model = DINOv2FeatureExtractor(size=dino_size, device=device_obj)
+    if backbone_cfg is None:
+        backbone_cfg = resolve_backbone_cfg(
+            {
+                "dino_size": dino_size,
+            }
+        )
+    model = build_backbone(backbone_cfg, device=device_obj)
     model.eval()
 
     if checkpoint_path:
         print(f"[feature_extractor] Loading checkpoint: {checkpoint_path}")
         ckpt = torch.load(checkpoint_path, map_location=device_obj)
         ckpt_cfg = ckpt.get("cfg", {}) or {}
-        ckpt_dino = ckpt_cfg.get("dino_size")
-        if ckpt_dino and ckpt_dino != dino_size:
-            print(f"[feature_extractor] WARNING: checkpoint dino_size={ckpt_dino} != requested {dino_size}")
-        use_lora = bool(ckpt_cfg.get("use_lora", False))
-        lora_rank = int(ckpt_cfg.get("lora_rank", 0) or 0)
-        lora_alpha = int(ckpt_cfg.get("lora_alpha", 0) or 0)
-        lora_targets = ckpt_cfg.get("lora_targets", ["attn.qkv", "attn.proj"])
-        if use_lora and lora_rank > 0:
-            replaced = inject_lora(
-                model.vit,
-                target_substrings=lora_targets,
-                r=lora_rank,
-                alpha=lora_alpha if lora_alpha > 0 else lora_rank,
+        ckpt_backbone = resolve_backbone_cfg(ckpt_cfg)
+        ckpt_variant = ckpt_backbone.get("variant")
+        if ckpt_variant and ckpt_variant != backbone_cfg.get("variant"):
+            print(
+                "[feature_extractor] WARNING: checkpoint backbone "
+                f"{ckpt_backbone.get('name')}:{ckpt_variant} != requested "
+                f"{backbone_cfg.get('name')}:{backbone_cfg.get('variant')}"
             )
+        audit = apply_peft(
+            model.model,
+            ckpt_cfg,
+            backbone_info=ckpt_backbone,
+            write_report=False,
+        )
+        if audit is not None:
+            replaced = audit.targets
             lora_state = ckpt.get("backbone_lora") or {}
             if not lora_state:
                 raise RuntimeError("Checkpoint does not contain backbone_lora weights.")
-            model_state = model.state_dict()
+            model_state = model.model.state_dict()
+            lora_state, remap_strategy = _remap_lora_state(lora_state, model_state)
+            if remap_strategy != "as-is":
+                print(f"[feature_extractor] Remapped LoRA keys ({remap_strategy}).")
             missing = []
             for key, tensor in lora_state.items():
                 if key in model_state:
@@ -82,15 +123,22 @@ def extract_features_from_folder(
                 else:
                     missing.append(key)
             if missing:
-                raise RuntimeError(f"Missing LoRA keys in backbone: {missing[:5]}{'...' if len(missing) > 5 else ''}")
-            model.load_state_dict(model_state)
+                raise RuntimeError(
+                    f"Missing LoRA keys in backbone: {missing[:5]}{'...' if len(missing) > 5 else ''}"
+                )
+            model.model.load_state_dict(model_state)
             model.eval()
             print(f"[feature_extractor] Loaded LoRA weights ({len(replaced)} layers) from checkpoint.")
         else:
             print("[feature_extractor] Checkpoint has no LoRA weights to load; using base backbone.")
 
     # Data loader using transforms for EM segmentation
-    transform = em_dino_unsup_transforms(img_size=img_size)
+    preprocess_cfg = resolve_preprocess_cfg({"backbone": backbone_cfg}, default_img_size=img_size)
+    transform = build_preprocess_transform(
+        preprocess_cfg["preset"],
+        preprocess_cfg["img_size"],
+        backbone_cfg=backbone_cfg,
+    )
     dataset = FlatImageFolder(root_dir=data_dir, transform=transform)
 
     def pad_collate(batch):
@@ -119,9 +167,8 @@ def extract_features_from_folder(
 
     for imgs, paths in loader:
         imgs = imgs.to(device_obj, non_blocking=True)
-        features = model(imgs)  # (B, C, H', W')
-        features = features.mean(dim=[2, 3])  # global average pool to (B, C)
-        feats_np = features.cpu().numpy().astype("float32")
+        output = model(imgs)
+        feats_np = output.global_embedding.cpu().numpy().astype("float32")
         all_features.append(feats_np)
         all_paths.extend(paths)
         # Infer dataset name from filename prefix
@@ -140,16 +187,13 @@ def extract_features_from_folder(
     dataset_ids = np.array([name_to_id[n] for n in all_dataset_names], dtype=np.int32)
     dataset_name_to_id = np.array([f"{name}:{idx}" for name, idx in name_to_id.items()], dtype=object)
 
-
     return {
-    "features": features_np,
-    "image_paths": np.array(all_paths, dtype=object),
-    "dataset_ids": dataset_ids,
-    "dataset_names": np.array(all_dataset_names, dtype=object),
-    "dataset_name_to_id": dataset_name_to_id,
-    "dino_size": np.array([dino_size], dtype=object),
-}
-
-
-        
-                
+        "features": features_np,
+        "image_paths": np.array(all_paths, dtype=object),
+        "dataset_ids": dataset_ids,
+        "dataset_names": np.array(all_dataset_names, dtype=object),
+        "dataset_name_to_id": dataset_name_to_id,
+        "dino_size": np.array([backbone_cfg["variant"]], dtype=object),
+        "backbone_name": np.array([backbone_cfg["name"]], dtype=object),
+        "backbone_variant": np.array([backbone_cfg["variant"]], dtype=object),
+    }

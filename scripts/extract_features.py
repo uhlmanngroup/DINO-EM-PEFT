@@ -1,4 +1,11 @@
-"""Extract unsupervised DINO features and save them in the run directory layout."""
+"""Extract unsupervised DINO features and save them in the run directory layout.
+
+Example (local):
+    python scripts/extract_features.py --cfg configs/mac/em_unsupervised_features_mac.yaml
+
+Example (cluster):
+    sbatch slurm/feat_analysis_paired.sbatch
+"""
 
 from __future__ import annotations
 
@@ -11,16 +18,26 @@ import torch
 import yaml
 
 from dino_peft.analysis.feature_extractor import extract_features_from_folder
+from dino_peft.backbones import resolve_backbone_cfg
 from dino_peft.utils.paths import setup_run_dir, update_metrics, write_run_info
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
 from copy import deepcopy
 
-DEFAULT_CFG_PATH = Path(__file__).parent.parent / "config" / "em_unsupervised_features_mac.yaml"
+DEFAULT_CFG_PATH = (
+    Path(__file__).parent.parent / "configs" / "mac" / "em_unsupervised_features_mac.yaml"
+)
 
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Extract DINO features for EM datasets.")
-    ap.add_argument("--cfg", type=str, default=str(DEFAULT_CFG_PATH), help="Path to YAML config.")
+    ap.add_argument(
+        "--cfg",
+        "--config",
+        dest="cfg",
+        type=str,
+        default=str(DEFAULT_CFG_PATH),
+        help="Path to YAML config.",
+    )
     ap.add_argument(
         "--checkpoint",
         type=str,
@@ -91,7 +108,8 @@ def main() -> None:
     if data_dir is None:
         raise ValueError("Config must define data.data_dir.")
 
-    dino_size = model_cfg.get("dino_size", "base")
+    backbone_cfg = resolve_backbone_cfg(model_cfg)
+    dino_size = backbone_cfg.get("variant")
     batch_size = int(runtime_cfg.get("batch_size", 16))
     num_workers = int(runtime_cfg.get("num_workers", 4))
     device = resolve_device(runtime_cfg.get("device", "auto"))
@@ -108,6 +126,8 @@ def main() -> None:
                 "task_type": task_type,
                 "device": device,
                 "img_size": img_size_cfg,
+                "backbone_name": backbone_cfg.get("name"),
+                "backbone_variant": backbone_cfg.get("variant"),
                 "dino_size": dino_size,
                 "data_dir": data_dir,
             },
@@ -123,7 +143,7 @@ def main() -> None:
 
     print(f"[extract_features] data_dir   = {data_dir}")
     print(f"[extract_features] output     = {out_path}")
-    print(f"[extract_features] dino_size  = {dino_size}")
+    print(f"[extract_features] backbone   = {backbone_cfg.get('name')}:{backbone_cfg.get('variant')}")
     print(f"[extract_features] batch_size = {batch_size}")
     print(f"[extract_features] num_workers= {num_workers}")
     print(f"[extract_features] device     = {device}")
@@ -139,6 +159,7 @@ def main() -> None:
         num_workers=num_workers,
         device=device,
         checkpoint_path=checkpoint_path,
+        backbone_cfg=backbone_cfg,
     )
 
     # Ensure everything is NumPy / Python-native before saving
@@ -165,6 +186,8 @@ def main() -> None:
             {
                 "num_samples": int(feats.shape[0]),
                 "feature_dim": int(feats.shape[1]),
+                "backbone_name": backbone_cfg.get("name"),
+                "backbone_variant": backbone_cfg.get("variant"),
                 "dino_size": dino_size,
                 "data_dir": data_dir,
             },
