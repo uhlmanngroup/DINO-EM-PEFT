@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-# Compose Drosophila + Lucchi++ into one dataset with:
-#   <OUT_ROOT>/{train,test}/{images,masks}/ and mapping.csv
-# Run: python scripts/data/compose_em_datasets.py
+"""Compose Drosophila + Lucchi++ into one dataset.
+
+Writes:
+  <OUT_ROOT>/{train,test}/{images,masks}/ and mapping.csv
+
+Example (local; absolute paths are user-specific):
+  python scripts/data/compose_em_datasets.py
+"""
 
 from pathlib import Path
 import csv, shutil, random
 
 # =========================
-# USER SETTINGS (edit here)
+# USER SETTINGS (edit here; absolute paths are user-specific)
 # =========================
 BASE = Path("/Users/cfuste/Documents/Data/ElectronMicroscopy")
 

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-# scripts/run_pca.py
+"""Run PCA/UMAP on extracted DINO features.
+
+Example (local):
+    python scripts/run_pca.py --cfg configs/mac/em_pca_mac.yaml
+
+Example (cluster):
+    sbatch slurm/feat_analysis_paired.sbatch
+"""
 
 import argparse
 import re

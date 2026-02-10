@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""Evaluate EM segmentation checkpoints.
+
+Example (local):
+    python scripts/eval_em_seg.py --cfg configs/mac/lucchi_dinov2_lora_mac.yaml
+
+Example (cluster):
+    sbatch slurm/single_lucchi_dinov2.sbatch configs/cluster/lucchi_dinov2_cluster.yaml
+"""
+
 import argparse
 import csv
 from copy import deepcopy

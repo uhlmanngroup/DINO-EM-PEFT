@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Compute parameter counts for backbones + segmentation head under full, head-only, and LoRA regimes."""
+"""Compute parameter counts for backbones + segmentation head under full, head-only, and LoRA regimes.
+
+Example (local):
+    python scripts/utils/param_count_table.py --cfg configs/cluster/param_counts.yaml
+
+Example (cluster):
+    sbatch slurm/param_counts.sbatch
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,7 +24,7 @@ from dino_peft.models.lora import apply_peft
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CFG = REPO_ROOT / "configs" / "analysis" / "param_counts.yaml"
+DEFAULT_CFG = REPO_ROOT / "configs" / "cluster" / "param_counts.yaml"
 
 
 def parse_args() -> argparse.Namespace:

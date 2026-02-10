@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Compute FID + linear separability metrics between two feature domains."""
+"""Compute FID + linear separability metrics between two feature domains.
+
+Example (local):
+    python scripts/run_domain_analysis.py --cfg configs/mac/domain_analysis.yaml
+
+Example (cluster):
+    sbatch slurm/domain_analysis.sbatch
+"""
 
 from __future__ import annotations
 

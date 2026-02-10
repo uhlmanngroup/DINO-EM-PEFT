@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Summarize segmentation experiment runs into CSV/JSON reports.
 
-Cluster reminder (plain CLI):
+Example (local):
+    python scripts/analysis/summarize_seg_results.py --root /path/to/results/seg
 
-    conda activate dino-peft
-    python scripts/analysis/summarize_seg_results.py --root /scratch/$USER/Results/DINO-LoRA/seg
-
-Tweak `--root` if the runs live elsewhere.
+Example (cluster):
+    sbatch slurm/summarize_seg_results.sbatch
 """
 
 from __future__ import annotations

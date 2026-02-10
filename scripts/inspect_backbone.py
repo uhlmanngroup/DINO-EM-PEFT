@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Inspect backbone module tree and LoRA targets without training."""
+"""Inspect backbone module tree and LoRA targets without training.
+
+Example (local):
+    python scripts/inspect_backbone.py --cfg configs/mac/paired_openclip_vitl14.yaml
+"""
 from __future__ import annotations
 
 import argparse

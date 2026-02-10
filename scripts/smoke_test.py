@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
-"""Lightweight smoke test for the DINO backbone stack."""
+"""Lightweight smoke test for the DINO backbone stack.
+
+Example (local, DINOv2):
+    python scripts/smoke_test.py --dino-size small --device cpu
+
+Example (local, DINOv3; absolute paths are user-specific):
+    python scripts/smoke_test.py \
+      --backbone-name dinov3 \
+      --variant vits16 \
+      --weights /Users/cfuste/Documents/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+      --repo-dir /Users/cfuste/Documents/GitHub/dinov3 \
+      --device cpu
+
+Example (local, OpenCLIP):
+    python scripts/smoke_test.py \
+      --backbone-name openclip \
+      --model "ViT-L-14" \
+      --pretrained laion2b_s32b_b79k \
+      --device cpu
+"""
 from __future__ import annotations
-
-"""
-Dinov2 somke test:
-$ python scripts/smoke_test.py \
-  --dino-size small \
-  --device cpu
-
-Dinov3 smoke test:
-$ python scripts/smoke_test.py \
-  --backbone-name dinov3 \
-  --variant vits16 \
-  --weights /Users/cfuste/Documents/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
-  --repo-dir /Users/cfuste/Documents/GitHub/dinov3 \
-  --device cpu
-
-OpenCLIP smoke test:
-$ python scripts/smoke_test.py \
-  --backbone-name openclip \
-  --model "ViT-L-14" \
-  --pretrained laion2b_s32b_b79k \
-  --device cpu
-
-"""
 
 import argparse
 import torch

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Compare multiple OOD-detection runs (fine-tuned vs frozen, etc.)."""
- 
-""" Example usage: 
-python scripts/analysis/compare_ood_runs.py \
-    /Users/cfuste/Documents/Results/DINO-LoRA/ood-detection/2025-12-16_crop-common-square_droso-vs-testlucchi_dinov2-base_nolora_ood \
-    /Users/cfuste/Documents/Results/DINO-LoRA/ood-detection/2025-12-16_crop-common-square_droso-vs-testlucchi_dinov2-base_lora_ood \
-    --labels "Frozen DINO" "PEFT DINO"
+"""Compare multiple OOD-detection runs (fine-tuned vs frozen, etc.).
+
+Example (local; absolute paths are user-specific):
+    python scripts/analysis/compare_ood_runs.py \
+      /Users/cfuste/Documents/Results/DINO-LoRA/ood-detection/2025-12-16_crop-common-square_droso-vs-testlucchi_dinov2-base_nolora_ood \
+      /Users/cfuste/Documents/Results/DINO-LoRA/ood-detection/2025-12-16_crop-common-square_droso-vs-testlucchi_dinov2-base_lora_ood \
+      --labels "Frozen DINO" "PEFT DINO"
 """
 
 

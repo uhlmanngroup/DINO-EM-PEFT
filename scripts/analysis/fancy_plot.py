@@ -1,3 +1,9 @@
+"""Generate the Lucchi++ summary comparison plot.
+
+Example (local; absolute paths are user-specific):
+    python scripts/analysis/fancy_plot.py
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,20 +11,22 @@ from matplotlib.patches import Patch
 from pathlib import Path
 import re
 
-# === 1) Load summaries and extract the largest model per backbone ===
-summary_dir = Path("/Users/cfuste/Documents/Results/DINO-LoRA/seg/summary-output")
-summary_files = {
-    "DINOv2": "summary-dinov2.csv",
-    "DINOv3": "summary-dinov3.csv",
-    "OpenCLIP": "summary-openclip.csv",
+# === CONFIG (edit here) ===
+CONFIG = {
+    "summary_dir": Path("/Users/cfuste/Documents/Results/DINO-LoRA/seg/summary-output"),
+    "summary_files": {
+        "DINOv2": "summary-dinov2.csv",
+        "DINOv3": "summary-dinov3.csv",
+        "OpenCLIP": "summary-openclip.csv",
+    },
+    "metric_col": "foreground_iou_mean",  # IoUf
 }
-
-metric_col = "foreground_iou_mean"  # IoUf
+metric_col = CONFIG["metric_col"]
 
 # Colors
 supervised_color = "#B1C7E6"   # darker blue
 zeroshot_color   = "#5D91E3"   # lighter blue
-ours_color       = "#1f57ff"   # yellow 
+ours_color       = "#1f57ff"   # yellow
 improve_color    = "#35C759"   # green
 worse_color      = "#FF3B30"   # red
 
@@ -56,7 +64,7 @@ def _rank_size(value: str) -> int:
     return -1
 
 def _load_summary(label: str, filename: str) -> pd.DataFrame:
-    path = summary_dir / filename
+    path = CONFIG["summary_dir"] / filename
     if not path.is_file():
         raise FileNotFoundError(f"{label} summary not found: {path}")
     df = pd.read_csv(path)
@@ -87,7 +95,7 @@ def get_pair(df: pd.DataFrame, dataset_type: str) -> tuple[float, float]:
     return base_val, lora_val
 
 summary_data = {}
-for label, filename in summary_files.items():
+for label, filename in CONFIG["summary_files"].items():
     summary_df = _select_largest_model(_load_summary(label, filename))
     summary_data[label] = {
         "paired": get_pair(summary_df, "paired"),

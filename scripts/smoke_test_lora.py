@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Smoke test LoRA injection for DINO backbones."""
+"""Smoke test LoRA injection for DINO backbones.
+
+Example (local, DINOv2 only):
+    python scripts/smoke_test_lora.py --device cpu
+
+Example (local, include DINOv3; absolute paths are user-specific):
+    python scripts/smoke_test_lora.py \
+      --dinov3-weights /Users/cfuste/Documents/Models/DINOv3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+      --dinov3-repo-dir /Users/cfuste/Documents/GitHub/dinov3 \
+      --device cpu
+"""
 
 from __future__ import annotations
 

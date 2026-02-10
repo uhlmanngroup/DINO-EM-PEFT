@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Mahalanobis OOD detection on DINO/PEFT embeddings."""
+"""Mahalanobis OOD detection on DINO/PEFT embeddings.
+
+Example (local):
+    python scripts/ood_detection.py --cfg configs/mac/ood_detection_mac.yaml
+"""
 
 from __future__ import annotations
 

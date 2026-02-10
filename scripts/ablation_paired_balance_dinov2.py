@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Run the paired balance ablation for DINOv2 segmentation.
+
+Example (local):
+    python scripts/ablation_paired_balance_dinov2.py \
+      --cfg configs/cluster/paired_dinov2_paired_balance.yaml \
+      --seed 0 \
+      --variant both
+
+Example (cluster):
+    sbatch slurm/ablation_paired_balance_dinov2.sbatch
+"""
 import argparse
 import csv
 import json
@@ -108,19 +119,8 @@ def _partition_indices_by_name(pairs):
 def _build_training_cfg(base_cfg, variant: str, seed: int, out_root: Path | None, epochs_override: int | None):
     cfg = deepcopy(base_cfg)
     cfg["seed"] = int(seed)
-    cfg["use_lora"] = False
-    cfg["lora"] = {"enabled": False}
-    cfg["batch_size"] = 2
-    cfg["epochs"] = int(epochs_override) if epochs_override is not None else 1000
-    cfg["patience"] = 20
-    cfg["lr"] = 5e-5
-    cfg["weight_decay"] = 1e-4
-    cfg["loss"] = "dice"
-    cfg["val_ratio"] = 0.1
-    cfg["split_seed"] = 42
-    cfg["device"] = cfg.get("device", "auto")
-    cfg["amp"] = False
-    cfg["num_workers"] = int(cfg.get("num_workers", 4))
+    if epochs_override is not None:
+        cfg["epochs"] = int(epochs_override)
 
     dataset_type = str((cfg.get("dataset") or {}).get("type", "paired")).lower()
     if dataset_type != "paired":

@@ -54,6 +54,8 @@ weight_decay: 0.0001
 num_workers: 4
 device: auto
 amp: false
+val_ratio: 0.1
+split_seed: 42
 
 # ---- loss (Dice) ----
 loss: dice

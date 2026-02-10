@@ -1,4 +1,11 @@
-"""Extract unsupervised DINO features and save them in the run directory layout."""
+"""Extract unsupervised DINO features and save them in the run directory layout.
+
+Example (local):
+    python scripts/extract_features.py --cfg configs/mac/em_unsupervised_features_mac.yaml
+
+Example (cluster):
+    sbatch slurm/feat_analysis_paired.sbatch
+"""
 
 from __future__ import annotations
 
