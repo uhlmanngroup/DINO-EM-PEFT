@@ -1,9 +1,8 @@
-# shift-peft
+# Microscopy Foundation Hub
 [![arXiv](https://img.shields.io/badge/arXiv-2602.08505-b31b1b.svg)](https://arxiv.org/abs/2602.08505)
 
-Parameter-efficient fine-tuning (PEFT) of DINOv2/DINOv3/OpenCLIP ViTs for electron microscopy (EM) foreground segmentation using LoRA adapters.
-
-This is a cleaned-up fork of the original DINOv2 EM segmentation experiments. The DINOv2 pipeline remains intact, and a backbone adapter layer enables DINOv3/OpenCLIP.
+A foundation‑model hub for microscopy: training, fine‑tuning, and evaluation across modalities.
+More details to follow.
 
 **Quickstart**
 1. Create an environment and install the package (local).
