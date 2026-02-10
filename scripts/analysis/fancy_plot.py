@@ -122,7 +122,7 @@ for label in ("DINOv2", "DINOv3", "OpenCLIP"):
     lucchi_base, lucchi_lora = summary_data[label]["lucchi"]
     our_rows.extend([
         {
-            "label": f"Paired - Droso+Lucchi++, {label} (Ours)",
+            "label": f"Paired - VNC+Lucchi++, {label} (Ours)",
             "group": "Ours",
             "baseline": paired_base,
             "new": paired_lora,
