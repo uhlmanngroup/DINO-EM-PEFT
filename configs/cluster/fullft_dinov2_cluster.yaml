@@ -1,23 +1,30 @@
-# Environment: cluster (UZH Science) - composed paired dataset
-# Full fine-tuning config (no LoRA).
+# Environment: cluster (UZH Science) - Lucchi++ segmentation run
 
 # ---- I/O ----
-train_img_dir: "/home/cfuste/data/datasets/DINO-POC/train/images"
-train_mask_dir: "/home/cfuste/data/datasets/DINO-POC/train/masks"
-test_img_dir:    "/home/cfuste/data/datasets/DINO-POC/test/images"
-test_mask_dir:   "/home/cfuste/data/datasets/DINO-POC/test/masks"
+# Droso:
+# train_img_dir: "/home/cfuste/data/datasets/Droso/Train_In"
+# train_mask_dir: "/home/cfuste/data/datasets/Droso/Train_Out"
+# test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
+# test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
 
-# results + experiment naming
-experiment_id: "2025-01-01_A2_dinopoc_fullft_seg"
+# Lucchi++:
+train_img_dir: "/home/cfuste/data/datasets/Lucchi++/Train_In"
+train_mask_dir: "/home/cfuste/data/datasets/Lucchi++/Train_Out"
+test_img_dir:    "/home/cfuste/data/datasets/Lucchi++/Test_In"
+test_mask_dir:   "/home/cfuste/data/datasets/Lucchi++/Test_Out"
+
+# results + experiment naming (stored under /data to persist on the cluster)
+experiment_id: "2026-02-11_lucchi_dinov2_fullft_seg"
 results_root: "/home/cfuste/data/DINO-LoRA/dinov2/seg/"
-task_type: "paired-fullft"
+task_type: "lucchi-fullft"
 
-# stitched dataset already shares a naming scheme between images/masks
+# dataset pairing (Lucchi images are named maskXXXX vs masks as digits)
 dataset:
-  type: paired          # use generic PairedDirsSegDataset
+  type: lucchi
   params:
-    pair_mode: stem
     recursive: false
+    image_prefix: "mask"
+    zfill_width: 4
 
 # ---- model / backbone ----
 backbone:

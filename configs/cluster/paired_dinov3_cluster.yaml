@@ -8,9 +8,9 @@ test_img_dir:    "/home/cfuste/data/datasets/DINO-POC/test/images"
 test_mask_dir:   "/home/cfuste/data/datasets/DINO-POC/test/masks"
 
 # results + experiment naming
-experiment_id: "2026-01-05_dinov3-vits16_head_seg"
-results_root: "/home/cfuste/data/DINO-LoRA/dinov3/"
-task_type: "seg"
+experiment_id: "2026-02-11_dinov3-vits16_head_seg_fullft"
+results_root: "/home/cfuste/data/DINO-LoRA/dinov3/seg/"
+task_type: "paired-fullft"
 
 # stitched dataset already shares a naming scheme between images/masks
 dataset:
@@ -22,13 +22,13 @@ dataset:
 # ---- model / backbone ----
 backbone:
   name: dinov3
-  variant: vits16
+  variant: vitl16
   load_backend: torchhub
   repo_dir: /home/cfuste/GitHub/dinov3
-  weights: /home/cfuste/data/models/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  weights: /home/cfuste/data/models/dinov3/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
   preprocess:
     preset: em
-dino_size: vits16
+dino_size: vitl16
 img_size:
   mode: longest_edge
   target: 1022   # largest <= 1024 while staying multiple of 16
@@ -38,16 +38,18 @@ num_classes: 2
 
 
 # ---- LoRA ----
-use_lora: true
+use_lora: false
 # lora_targets: [attn.qkv, attn.proj]
 lora_rank: 16
 lora_alpha: 32
 lora:
-  enabled: true
+  enabled: false
   target_policy: vit_attention_only
   layer_selection: all
   exclude: [head, decoder, seg_head]
   compatibility_mode: true
+
+full_finetune: true
 
 # ---- training ----
 batch_size: 2
