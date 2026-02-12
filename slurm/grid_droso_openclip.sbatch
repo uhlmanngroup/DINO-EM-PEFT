@@ -4,7 +4,7 @@
 #SBATCH --gpus=A100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --output=logs/%x-%j.out
+#SBATCH --output=logs/%x-%A_%a.out
 
 set -euo pipefail
 module --quiet load miniforge3 || module load miniforge3
