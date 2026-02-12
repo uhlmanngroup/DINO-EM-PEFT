@@ -2,25 +2,25 @@
 
 # ---- I/O ----
 # Droso:
-# train_img_dir: "/home/cfuste/data/datasets/Droso/Train_In"
-# train_mask_dir: "/home/cfuste/data/datasets/Droso/Train_Out"
-# test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
-# test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
+train_img_dir: "/home/cfuste/data/datasets/Droso/Train_In"
+train_mask_dir: "/home/cfuste/data/datasets/Droso/Train_Out"
+test_img_dir:    "/home/cfuste/data/datasets/Droso/Test_In"
+test_mask_dir:   "/home/cfuste/data/datasets/Droso/Test_Out"
 
 # Lucchi++:
-train_img_dir: "/home/cfuste/data/datasets/Lucchi++/Train_In"
-train_mask_dir: "/home/cfuste/data/datasets/Lucchi++/Train_Out"
-test_img_dir:    "/home/cfuste/data/datasets/Lucchi++/Test_In"
-test_mask_dir:   "/home/cfuste/data/datasets/Lucchi++/Test_Out"
+# train_img_dir: "/home/cfuste/data/datasets/Lucchi++/Train_In"
+# train_mask_dir: "/home/cfuste/data/datasets/Lucchi++/Train_Out"
+# test_img_dir:    "/home/cfuste/data/datasets/Lucchi++/Test_In"
+# test_mask_dir:   "/home/cfuste/data/datasets/Lucchi++/Test_Out"
 
 # results + experiment naming (stored under /data to persist on the cluster)
-experiment_id: "2026-02-11_lucchi_dinov2_fullft_seg"
+experiment_id: "2026-02-11_droso_dinov2_fullft_seg"
 results_root: "/home/cfuste/data/DINO-LoRA/dinov2/seg/"
-task_type: "lucchi-fullft"
+task_type: "droso-fullft"
 
 # dataset pairing (Lucchi images are named maskXXXX vs masks as digits)
 dataset:
-  type: lucchi
+  type: droso
   params:
     recursive: false
     image_prefix: "mask"
