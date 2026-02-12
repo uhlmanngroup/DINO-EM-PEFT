@@ -10,6 +10,7 @@ Example (cluster):
 
 import argparse
 import csv
+import inspect
 from copy import deepcopy
 from pathlib import Path
 
@@ -31,6 +32,21 @@ from dino_peft.models.head_seg1x1 import SegHeadDeconv
 from dino_peft.models.lora import apply_peft
 from dino_peft.utils.paths import setup_run_dir, update_metrics
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
+
+def _filter_dataset_params(dataset_class, dataset_params: dict, dataset_type: str) -> dict:
+    sig = inspect.signature(dataset_class.__init__)
+    allowed = {
+        name
+        for name, p in sig.parameters.items()
+        if name != "self" and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    dropped = sorted(set(dataset_params) - allowed)
+    if dropped:
+        print(
+            f"[eval_em_seg] Ignoring unsupported dataset.params for type='{dataset_type}': {dropped}"
+        )
+    return {k: v for k, v in dataset_params.items() if k in allowed}
+
 def pad_collate(batch):
     imgs, masks, names = zip(*batch)
     max_h = max(img.shape[-2] for img in imgs)
@@ -82,6 +98,7 @@ def build_dataset_from_cfg(cfg, split: str, transform):
         dataset_params.setdefault("image_prefix", "mask")
     elif dataset_type == "droso":
         dataset_params.setdefault("recursive", True)
+    dataset_params = _filter_dataset_params(DatasetClass, dataset_params, dataset_type)
 
     kwargs = {
         "img_size": img_size_cfg,

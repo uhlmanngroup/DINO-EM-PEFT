@@ -2,6 +2,7 @@ import yaml
 import torch
 import torch.nn as nn
 import monai
+import inspect
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from copy import deepcopy
@@ -22,6 +23,20 @@ from dino_peft.models.lora import apply_peft, lora_parameters, resolve_full_fine
 from dino_peft.models.head_seg1x1 import SegHeadDeconv
 from dino_peft.utils.paths import setup_run_dir, write_run_info, update_metrics
 from dino_peft.utils.image_size import DEFAULT_IMG_SIZE_CFG
+
+def _filter_dataset_params(dataset_class, dataset_params: dict, dataset_type: str) -> dict:
+    sig = inspect.signature(dataset_class.__init__)
+    allowed = {
+        name
+        for name, p in sig.parameters.items()
+        if name != "self" and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    dropped = sorted(set(dataset_params) - allowed)
+    if dropped:
+        print(
+            f"[SegTrainer] Ignoring unsupported dataset.params for type='{dataset_type}': {dropped}"
+        )
+    return {k: v for k, v in dataset_params.items() if k in allowed}
 
 
 def pick_device(cfg_device: str | None):
@@ -146,6 +161,7 @@ class SegTrainer:
             dataset_params.setdefault("image_prefix", "mask")
         elif dataset_type == "droso":
             dataset_params.setdefault("recursive", True)
+        dataset_params = _filter_dataset_params(DatasetClass, dataset_params, dataset_type)
 
         def _build_dataset(img_dir, mask_dir, transform):
             kwargs = {
