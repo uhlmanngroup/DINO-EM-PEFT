@@ -7,7 +7,7 @@ test_img_dir: "/home/cfuste/data/datasets/Droso/Test_In"
 test_mask_dir: "/home/cfuste/data/datasets/Droso/Test_Out"
 
 # results + experiment naming
-experiment_id: "2026-02-12_A1_droso_dinov3-vitl16_fullft_seg"
+experiment_id: "2026-02-12_droso_dinov3-vitl16_fullft_seg"
 results_root: "/home/cfuste/data/DINO-LoRA/dinov3/seg"
 task_type: "droso-fullft"
 
